@@ -1,0 +1,26 @@
+# Dev local apenas — em produção o PostgreSQL roda no LXC 100
+# e o Ollama no LXC 101 (ver README).
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_PASSWORD: ragcentral
+      POSTGRES_DB: postgres
+    ports:
+      # 5432 do host costuma estar ocupada por outros projetos; usamos 5440
+      - "5440:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # opcional: Ollama local pra testar o modo "auto" sem o LXC 101
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    # depois de subir: docker compose exec ollama ollama pull nomic-embed-text
+
+volumes:
+  pgdata:
+  ollama:

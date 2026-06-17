@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+runtime-settings.json
+*.log
+.DS_Store
+# modelos do OCR (tesseract) baixados em runtime
+*.traineddata
+# uploads/temporários
+uploads/

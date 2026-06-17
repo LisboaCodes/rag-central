@@ -1,0 +1,26 @@
+{
+  "name": "rag-central-backend",
+  "version": "1.0.0",
+  "description": "RAG Central - API de ingestão e busca semântica (pgvector + Ollama/OpenAI)",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "init-db": "node src/scripts/init-db.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^2.0.1",
+    "openai": "^4.77.0",
+    "pdf-parse": "^1.1.1",
+    "pg": "^8.13.1",
+    "tesseract.js": "^7.0.0"
+  }
+}
