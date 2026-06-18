@@ -1,11 +1,13 @@
-const BASE = '/api';
+// Em dev usa o proxy '/api' (vite.config). Em produção, defina VITE_API_URL
+// (no build) com a URL pública do backend, ex: https://rag-api.creativenext.dev
+export const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 async function request(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (opts.body && !(opts.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
-  const res = await fetch(`${BASE}${path}`, { ...opts, headers });
+  const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error(data?.error || `Erro HTTP ${res.status}`);

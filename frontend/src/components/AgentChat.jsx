@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Send, FileText, Brain, Wrench, Paperclip, X } from 'lucide-react';
 import { useAgents, hexOf } from '../lib/AgentsContext.jsx';
+import { API_BASE } from '../lib/api.js';
 
 const readDataUrl = (file) => new Promise((resolve) => {
   const r = new FileReader();
@@ -95,7 +96,7 @@ export default function AgentChat({ agent, onReply, className = '' }) {
     const cur = { agent: null, text: '' }; // texto acumulado do agente atual (p/ onReply)
 
     try {
-      const resp = await fetch('/api/chat/stream', {
+      const resp = await fetch(`${API_BASE}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ agent: agent.key, message: text, conversationId, images, files })
