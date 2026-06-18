@@ -46,6 +46,11 @@ export const api = {
     index: (body) => request('/github/index', { method: 'POST', body: JSON.stringify(body) })
   },
 
+  models: {
+    list: (agent) => request(`/models${agent ? `?agent=${encodeURIComponent(agent)}` : ''}`),
+    listFor: (base, key) => request('/models', { method: 'POST', body: JSON.stringify({ base, key }) })
+  },
+
   news: {
     status: () => request('/news/status'),
     latest: () => request('/news'),

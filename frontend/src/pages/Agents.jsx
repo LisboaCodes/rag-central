@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageSquare, X, Plus, Pencil, Trash2, Upload, Bot } from 'lucide-react';
 import AgentChat from '../components/AgentChat.jsx';
 import { useStatus } from '../lib/StatusContext.jsx';
@@ -45,6 +45,29 @@ function Editor({ initial, onClose, onSaved }) {
   const spriteRef = useRef(null);
   const isEdit = Boolean(initial?.key);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  // modelos disponíveis (das APIs já configuradas)
+  const [models, setModels] = useState({ openai: [], ollama: [] });
+  const [loadingModels, setLoadingModels] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { api } = await import('../lib/api.js');
+        setModels(await api.models.list(initial?.key));
+      } catch { /* sem modelos */ }
+    })();
+  }, [initial?.key]);
+
+  async function buscarModelos() {
+    setLoadingModels(true);
+    try {
+      const { api } = await import('../lib/api.js');
+      const r = await api.models.listFor(form.chat_api_base, form.chat_api_key);
+      setModels((m) => ({ ...m, openai: r.openai || [] }));
+    } catch { /* ignore */ }
+    finally { setLoadingModels(false); }
+  }
 
   function pickImage(e, field) {
     const file = e.target.files?.[0];
@@ -140,7 +163,10 @@ function Editor({ initial, onClose, onSaved }) {
             </Field>
           </div>
           <Field label="Modelo (rótulo de exibição)">
-            <input value={form.model} onChange={(e) => set('model', e.target.value)} placeholder="ex: MiMo v2.5 Pro (só pra mostrar)" className="inp" />
+            <input list="all-models" value={form.model} onChange={(e) => set('model', e.target.value)} placeholder="escolha ou digite — ex: mimo-v2.5-pro" className="inp" />
+            <datalist id="all-models">
+              {[...models.openai, ...models.ollama].map((m) => <option key={m} value={m} />)}
+            </datalist>
           </Field>
 
           {/* conexão de IA deste agente */}
@@ -181,7 +207,18 @@ function Editor({ initial, onClose, onSaved }) {
                   <input value={form.chat_api_key || ''} onChange={(e) => set('chat_api_key', e.target.value)} placeholder="sk-… (deixe ••••  pra manter)" autoComplete="off" className="inp" />
                 </Field>
                 <Field label="Modelo (ID da API)">
-                  <input value={form.chat_model || ''} onChange={(e) => set('chat_model', e.target.value)} placeholder="ex: llama-3.3-70b-versatile" className="inp" />
+                  <div className="flex gap-2">
+                    <input list="openai-models" value={form.chat_model || ''}
+                      onChange={(e) => { set('chat_model', e.target.value); if (!form.model) set('model', e.target.value); }}
+                      placeholder="escolha ou digite o ID do modelo" className="inp flex-1" />
+                    <button type="button" onClick={buscarModelos} className="shrink-0 rounded-lg border border-edge px-3 text-xs hover:border-blue-500">
+                      {loadingModels ? '…' : '🔄 listar'}
+                    </button>
+                  </div>
+                  <datalist id="openai-models">
+                    {models.openai.map((m) => <option key={m} value={m} />)}
+                  </datalist>
+                  {models.openai.length > 0 && <p className="mt-1 text-[10px] text-muted">{models.openai.length} modelos disponíveis nessa API</p>}
                 </Field>
               </>
             )}
@@ -192,7 +229,12 @@ function Editor({ initial, onClose, onSaved }) {
                   <input value={form.chat_api_base || ''} onChange={(e) => set('chat_api_base', e.target.value)} placeholder="http://ip-do-lxc101:11434" className="inp" />
                 </Field>
                 <Field label="Modelo do Ollama">
-                  <input value={form.chat_model || ''} onChange={(e) => set('chat_model', e.target.value)} placeholder="ex: llama3.1" className="inp" />
+                  <input list="ollama-models" value={form.chat_model || ''}
+                    onChange={(e) => { set('chat_model', e.target.value); if (!form.model) set('model', e.target.value); }}
+                    placeholder="escolha ou digite — ex: llama3.1" className="inp" />
+                  <datalist id="ollama-models">
+                    {models.ollama.map((m) => <option key={m} value={m} />)}
+                  </datalist>
                 </Field>
               </>
             )}
