@@ -1,5 +1,6 @@
 import axios from 'axios';
 import OpenAI from 'openai';
+import { spawn } from 'child_process';
 import { getSettings } from './settings.js';
 import { embed } from './embedding.js';
 import {
@@ -80,6 +81,9 @@ function providerFor(agent) {
   if (p === 'ollama') {
     return { provider: 'ollama', ollamaUrl: agent.chat_api_base || s.OLLAMA_URL, ollamaModel: agent.chat_model || s.OLLAMA_CHAT_MODEL };
   }
+  if (p === 'claude-cli') {
+    return { provider: 'claude-cli', bin: s.CLAUDE_CLI_BIN || 'claude', model: agent.chat_model || '' };
+  }
   // default → usa o global das Configurações
   return s.CHAT_PROVIDER === 'openai'
     ? { provider: 'openai', apiBase: s.CHAT_API_BASE, apiKey: s.CHAT_API_KEY, model: s.CHAT_MODEL }
@@ -133,6 +137,9 @@ async function generateReply({ agentKey, persona, prov, conversationId, latestTe
     ({ answer, model, toolsUsed } = onEvent
       ? await runWithToolsStream(prov, messages, ctx, onEvent, images)
       : await runWithTools(prov, messages, ctx, images));
+  } else if (prov.provider === 'claude-cli') {
+    ({ answer, model } = await callClaudeCli(prov, messages, ctx, onEvent));
+    toolsUsed = [];
   } else if (onEvent) {
     ({ answer, model } = await callOllamaStream(prov, messages, ctx, onEvent));
     toolsUsed = [];
@@ -368,6 +375,44 @@ async function callOpenAICompatible(prov, messages) {
   const answer = res.choices?.[0]?.message?.content?.trim();
   if (!answer) throw new Error('Resposta vazia do provedor de chat');
   return { answer, model: `${prov.apiBase}/${prov.model}` };
+}
+
+// Claude via CLI logado (binário `claude`). Não usa API key — usa a sessão
+// autenticada no host do backend. Requer `claude` instalado e logado lá.
+async function callClaudeCli(prov, messages, ctx, onEvent) {
+  const sys = messages.find((m) => m.role === 'system')?.content || '';
+  const convo = messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => {
+      const txt = typeof m.content === 'string' ? m.content : '[anexo]';
+      return `${m.role === 'user' ? 'Usuário' : (ctx.agent || 'Assistente')}: ${txt}`;
+    })
+    .join('\n');
+
+  const args = ['--print', '--output-format', 'text'];
+  if (prov.model) args.push('--model', prov.model);
+  if (sys) args.push('--append-system-prompt', sys);
+
+  const answer = await new Promise((resolve, reject) => {
+    let cp;
+    try { cp = spawn(prov.bin || 'claude', args, { windowsHide: true }); }
+    catch (e) { return reject(new Error(`Claude CLI não encontrado (${prov.bin}): ${e.message}`)); }
+    let out = '', err = '';
+    const killer = setTimeout(() => { cp.kill('SIGKILL'); reject(new Error('Claude CLI: tempo esgotado')); }, 180000);
+    cp.on('error', (e) => { clearTimeout(killer); reject(new Error(`Claude CLI falhou (${prov.bin}): ${e.message}`)); });
+    cp.stdout.on('data', (d) => { out += d.toString('utf8'); });
+    cp.stderr.on('data', (d) => { err += d.toString('utf8'); });
+    cp.on('close', (code) => {
+      clearTimeout(killer);
+      if (code !== 0) return reject(new Error(`Claude CLI saiu (código ${code}): ${err.slice(0, 200) || 'sem stderr'}`));
+      resolve(out.trim());
+    });
+    cp.stdin.write(convo); cp.stdin.end();
+  });
+
+  if (!answer) throw new Error('Claude CLI retornou vazio (logado? `claude login` no host do backend)');
+  if (onEvent) onEvent({ type: 'token', agent: ctx.agent, delta: answer });
+  return { answer, model: `claude-cli/${prov.model || 'default'}` };
 }
 
 // Ollama STREAMING (/api/chat com stream:true → NDJSON). Emite tokens via onEvent.

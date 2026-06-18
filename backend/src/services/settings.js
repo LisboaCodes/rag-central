@@ -27,6 +27,8 @@ function defaults() {
     CHAT_API_BASE: (process.env.CHAT_API_BASE || 'https://api.groq.com/openai/v1').replace(/\/+$/, ''),
     CHAT_API_KEY: process.env.CHAT_API_KEY || '',
     CHAT_MODEL: process.env.CHAT_MODEL || 'llama-3.3-70b-versatile',
+    // binário do Claude CLI (para agentes no provedor "claude-cli")
+    CLAUDE_CLI_BIN: process.env.CLAUDE_CLI_BIN || 'claude',
     // GitHub: PAT para os agentes lerem/commitarem nos repos
     GITHUB_TOKEN: process.env.GITHUB_TOKEN || '',
     // Perplexity: pesquisa web + novidades de IA (preencher depois)

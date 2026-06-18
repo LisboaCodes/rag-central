@@ -30,9 +30,10 @@ const empty = {
 // presets pra facilitar a escolha da API (OpenAI-compatible)
 const API_PRESETS = [
   { label: 'MiMo (Xiaomi)', base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.5-pro' },
-  { label: 'Groq', base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
   { label: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o' },
-  { label: 'Anthropic (Claude)', base: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-6' },
+  { label: 'DeepSeek', base: 'https://api.deepseek.com', model: 'deepseek-chat' },
+  { label: 'Groq', base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
+  { label: 'Anthropic (Claude API)', base: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-6' },
   { label: 'OpenRouter', base: 'https://openrouter.ai/api/v1', model: '' }
 ];
 
@@ -172,11 +173,12 @@ function Editor({ initial, onClose, onSaved }) {
           {/* conexão de IA deste agente */}
           <div className="rounded-lg border border-edge bg-background/40 p-3 space-y-3">
             <Field label="Qual IA este agente usa?">
-              <div className="grid grid-cols-3 gap-1 rounded-lg bg-background p-1">
+              <div className="grid grid-cols-2 gap-1 rounded-lg bg-background p-1 sm:grid-cols-4">
                 {[
-                  { v: 'default', l: 'Padrão (global)' },
+                  { v: 'default', l: 'Padrão' },
                   { v: 'openai', l: 'API própria' },
-                  { v: 'ollama', l: 'Ollama' }
+                  { v: 'ollama', l: 'Ollama' },
+                  { v: 'claude-cli', l: 'Claude CLI' }
                 ].map((p) => (
                   <button key={p.v} type="button" onClick={() => set('chat_provider', p.v)}
                     className={`rounded-md py-1.5 text-[11px] font-semibold transition-colors ${form.chat_provider === p.v ? 'bg-gradient-to-r from-blue-600 to-violet-600 text-white' : 'text-muted hover:text-body'}`}>
@@ -188,6 +190,18 @@ function Editor({ initial, onClose, onSaved }) {
 
             {form.chat_provider === 'default' && (
               <p className="text-[11px] text-muted">Usa o provedor global definido em <strong>Configurações → Chat dos Agentes</strong>.</p>
+            )}
+
+            {form.chat_provider === 'claude-cli' && (
+              <>
+                <Field label="Modelo (opcional)">
+                  <input value={form.chat_model || ''} onChange={(e) => { set('chat_model', e.target.value); set('model', e.target.value || 'Claude CLI'); }}
+                    placeholder="sonnet / opus / haiku (vazio = padrão do CLI)" className="inp" />
+                </Field>
+                <p className="text-[11px] text-muted">
+                  Usa o binário <code className="text-violet-400">claude</code> <strong>logado no host do backend</strong> (sem API key, usa sua assinatura). Requer <code>claude</code> instalado e <code>claude login</code> no servidor.
+                </p>
+              </>
             )}
 
             {form.chat_provider === 'openai' && (
