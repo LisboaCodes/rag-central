@@ -192,34 +192,39 @@ function Editor({ initial, onClose, onSaved }) {
 
             {form.chat_provider === 'openai' && (
               <>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted">Preset rápido</label>
-                  <select onChange={(e) => { const p = API_PRESETS[e.target.value]; if (p) { set('chat_api_base', p.base); if (p.model) set('chat_model', p.model); } }}
-                    defaultValue="" className="inp">
-                    <option value="">escolha pra preencher…</option>
-                    {API_PRESETS.map((p, i) => <option key={p.label} value={i}>{p.label}</option>)}
-                  </select>
-                </div>
-                <Field label="Base URL (OpenAI-compatible)">
-                  <input value={form.chat_api_base || ''} onChange={(e) => set('chat_api_base', e.target.value)} placeholder="https://api.groq.com/openai/v1" className="inp" />
-                </Field>
-                <Field label="API Key">
-                  <input value={form.chat_api_key || ''} onChange={(e) => set('chat_api_key', e.target.value)} placeholder="sk-… (deixe ••••  pra manter)" autoComplete="off" className="inp" />
-                </Field>
-                <Field label="Modelo (ID da API)">
-                  <div className="flex gap-2">
-                    <input list="openai-models" value={form.chat_model || ''}
-                      onChange={(e) => { set('chat_model', e.target.value); if (!form.model) set('model', e.target.value); }}
-                      placeholder="escolha ou digite o ID do modelo" className="inp flex-1" />
-                    <button type="button" onClick={buscarModelos} className="shrink-0 rounded-lg border border-edge px-3 text-xs hover:border-blue-500">
-                      {loadingModels ? '…' : '🔄 listar'}
-                    </button>
-                  </div>
+                <Field label="Modelo">
+                  <input list="openai-models" value={form.chat_model || ''}
+                    onChange={(e) => { set('chat_model', e.target.value); set('model', e.target.value); }}
+                    placeholder="escolha um modelo da lista" className="inp" />
                   <datalist id="openai-models">
                     {models.openai.map((m) => <option key={m} value={m} />)}
                   </datalist>
-                  {models.openai.length > 0 && <p className="mt-1 text-[10px] text-muted">{models.openai.length} modelos disponíveis nessa API</p>}
+                  <p className="mt-1 text-[10px] text-muted">
+                    {models.openai.length > 0
+                      ? `${models.openai.length} modelos disponíveis (das chaves já salvas) — é só escolher.`
+                      : 'Sem modelos listados — verifique a chave global em Configurações.'}
+                  </p>
                 </Field>
+
+                <details className="rounded-lg border border-edge/60 bg-background/40 px-3 py-2">
+                  <summary className="cursor-pointer text-[11px] text-muted">Avançado: usar outra API/chave (opcional)</summary>
+                  <div className="mt-2 space-y-2">
+                    <p className="text-[10px] text-muted">Deixe em branco para usar a <strong>chave e endpoint globais</strong> já salvos. Preencha só se este agente usa uma API/chave diferente.</p>
+                    <div>
+                      <label className="mb-1 block text-[11px] text-muted">Preset</label>
+                      <select onChange={(e) => { const p = API_PRESETS[e.target.value]; if (p) { set('chat_api_base', p.base); if (p.model) { set('chat_model', p.model); set('model', p.model); } } }}
+                        defaultValue="" className="inp">
+                        <option value="">escolha pra preencher…</option>
+                        {API_PRESETS.map((p, i) => <option key={p.label} value={i}>{p.label}</option>)}
+                      </select>
+                    </div>
+                    <input value={form.chat_api_base || ''} onChange={(e) => set('chat_api_base', e.target.value)} placeholder="Base URL (vazio = global)" className="inp" />
+                    <input value={form.chat_api_key || ''} onChange={(e) => set('chat_api_key', e.target.value)} placeholder="API Key (vazio = global · ••••  mantém)" autoComplete="off" className="inp" />
+                    <button type="button" onClick={buscarModelos} className="rounded-lg border border-edge px-3 py-1.5 text-xs hover:border-blue-500">
+                      {loadingModels ? 'listando…' : '🔄 listar modelos dessa API'}
+                    </button>
+                  </div>
+                </details>
               </>
             )}
 

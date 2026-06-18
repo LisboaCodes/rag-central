@@ -346,15 +346,25 @@ function drawHead(ctx, x, y, r, img, fallback) {
 }
 
 // corpo de personagem em pixel-art: pernas animadas, braços, corpo e cabeça
-function drawCharBody(ctx, x, y, bodyColor, face, animFrame, moving, img) {
+function drawCharBody(ctx, x, y, bodyColor, face, animFrame, moving, img, gender) {
+  const fem = gender === 'feminino';
+  const HAIR = fem ? '#7a3b2a' : '#2b2118';
   const swing = moving ? Math.sin(animFrame * 0.3) * 2.5 : 0;
   // pernas + sapatos
-  ctx.fillStyle = '#3b2f2a';
+  ctx.fillStyle = fem ? '#e9c9a0' : '#3b2f2a';
   ctx.fillRect(x - 5, y + 9, 3, 5 + swing);
   ctx.fillRect(x + 2, y + 9, 3, 5 - swing);
   ctx.fillStyle = '#1f2937';
   ctx.fillRect(x - 6, y + 13 + Math.max(0, swing), 4, 2);
   ctx.fillRect(x + 2, y + 13 + Math.max(0, -swing), 4, 2);
+  // saia (feminino) sobre as pernas
+  if (fem) {
+    ctx.fillStyle = bodyColor;
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y + 6); ctx.lineTo(x + 6, y + 6);
+    ctx.lineTo(x + 9, y + 13); ctx.lineTo(x - 9, y + 13);
+    ctx.closePath(); ctx.fill();
+  }
   // braços (atrás do corpo)
   ctx.fillStyle = bodyColor;
   ctx.fillRect(x - 10, y - 2, 3, 9);
@@ -363,15 +373,27 @@ function drawCharBody(ctx, x, y, bodyColor, face, animFrame, moving, img) {
   ctx.fillRect(x - 10, y + 6, 3, 3);
   ctx.fillRect(x + 7, y + 6, 3, 3);
   // corpo (camiseta) com sombra lateral
-  roundRect(ctx, x - 8, y - 4, 16, 16, 6); ctx.fillStyle = bodyColor; ctx.fill();
-  ctx.fillStyle = 'rgba(0,0,0,0.12)'; roundRect(ctx, x + 1, y - 4, 7, 16, 6); ctx.fill();
+  roundRect(ctx, x - 8, y - 4, 16, fem ? 12 : 16, 6); ctx.fillStyle = bodyColor; ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.12)'; roundRect(ctx, x + 1, y - 4, 7, fem ? 12 : 16, 6); ctx.fill();
+  // cabelo comprido atrás da cabeça (feminino, sem avatar)
+  const hasAvatar = img && img.complete && img.naturalWidth;
+  if (fem && !hasAvatar) {
+    ctx.fillStyle = HAIR;
+    roundRect(ctx, x - 8, y - 14, 16, 16, 7); ctx.fill();
+  }
   // cabeça (avatar ou rosto desenhado)
   const hasImg = drawHead(ctx, x, y - 8, 7, img, '#f1d4b3');
   if (!hasImg) {
-    // cabelo
-    ctx.fillStyle = '#2b2118';
+    // cabelo (topo) — franja
+    ctx.fillStyle = HAIR;
     ctx.beginPath(); ctx.arc(x, y - 9, 7, Math.PI, Math.PI * 2); ctx.fill();
-    ctx.fillRect(x - 7, y - 9, 14, 2);
+    if (fem) {
+      // mechas laterais até o "ombro"
+      ctx.fillRect(x - 8, y - 9, 2.5, 10);
+      ctx.fillRect(x + 5.5, y - 9, 2.5, 10);
+    } else {
+      ctx.fillRect(x - 7, y - 9, 14, 2);
+    }
     // olhos conforme direção
     ctx.fillStyle = '#1f2937';
     const eo = { up: [0, -2], down: [0, 1], left: [-2, 0], right: [2, 0] }[face] || [0, 0];
@@ -380,6 +402,10 @@ function drawCharBody(ctx, x, y, bodyColor, face, animFrame, moving, img) {
       ctx.arc(x - 2.5 + eo[0], y - 6 + eo[1], 1.1, 0, Math.PI * 2);
       ctx.arc(x + 2.5 + eo[0], y - 6 + eo[1], 1.1, 0, Math.PI * 2);
       ctx.fill();
+    }
+    // cílios/boquinha sutil pro feminino
+    if (fem && face === 'down') {
+      ctx.fillStyle = '#c2466b'; ctx.fillRect(x - 1, y - 3, 2, 1);
     }
   }
 }
@@ -414,7 +440,7 @@ function drawAgent(ctx, a, now, { selected, img, sprite, near }) {
 
   const spriteReady = sprite && sprite.complete && sprite.naturalWidth;
   if (spriteReady) drawSpriteChar(ctx, sprite, x, a.py + 14 - bob, a.moving, a.animFrame);
-  else drawCharBody(ctx, x, y, a.color, a.face, a.animFrame, a.moving, img);
+  else drawCharBody(ctx, x, y, a.color, a.face, a.animFrame, a.moving, img, a.gender);
 
   // nome
   ctx.font = 'bold 9px ui-sans-serif, system-ui';
@@ -556,6 +582,7 @@ export default function Office() {
       return {
         name: r.key,                       // chave (status/reação)
         color: hexOf(r.color),
+        gender: r.gender,
         station: st,
         px: c.x, py: c.y,
         path: null, pathIdx: 0,
