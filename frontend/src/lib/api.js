@@ -54,7 +54,8 @@ export const api = {
   news: {
     status: () => request('/news/status'),
     latest: () => request('/news'),
-    brief: (agent) => request(`/news/brief?agent=${encodeURIComponent(agent)}`)
+    brief: (agent) => request(`/news/brief?agent=${encodeURIComponent(agent)}`),
+    sync: () => request('/news/sync', { method: 'POST' })
   },
 
   whatsapp: {

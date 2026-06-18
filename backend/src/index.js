@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { initSchema } from './services/db.js';
+import { startRssSchedule } from './services/rss-scraper.js';
 import queryRouter from './routes/query.js';
 import chatRouter from './routes/chat.js';
 import conversationsRouter from './routes/conversations.js';
@@ -67,4 +68,6 @@ initSchema()
 app.listen(port, '0.0.0.0', () => {
   console.log(`RAG Central API ouvindo em http://0.0.0.0:${port}`);
   logEvent('INFO', 'api', `Servidor iniciado na porta ${port} (NODE_ENV=${process.env.NODE_ENV || 'development'})`);
+  // scraper de RSS: roda logo após o boot e a cada 6h
+  startRssSchedule();
 });

@@ -3,10 +3,8 @@ import multer from 'multer';
 import path from 'path';
 import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import { chunkText } from '../services/chunker.js';
-import { embedBatched } from '../services/embedding.js';
-import { insertChunks, deleteSource } from '../services/db.js';
 import { getSettings } from '../services/settings.js';
-import { logEvent, recordIngest, recordOutcome, recordEmbeddings } from '../services/activity.js';
+import { ingestText } from '../services/ingest.js';
 
 const router = Router();
 
@@ -103,50 +101,33 @@ router.post('/', upload.single('file'), async (req, res, next) => {
     const { text, sourcePath } = await resolveInput(req);
     sourceLabel = sourcePath;
     const opts = chunkOptions(req.body);
-    const chunks = chunkText(text, opts);
-    if (!chunks.length) {
-      return res.status(400).json({ error: 'Nenhum chunk gerado — texto vazio?' });
-    }
 
-    const { embeddings, model, fallback } = await embedBatched(chunks, req.body.mode);
-
-    let replaced = 0;
-    if (req.body.replace !== 'false' && req.body.replace !== false) {
-      replaced = await deleteSource(project, sourcePath);
-    }
-
-    const ids = await insertChunks({
+    const result = await ingestText({
       project,
       sourcePath,
-      chunks,
-      embeddings,
-      model,
+      text,
+      mode: req.body.mode,
+      replace: req.body.replace !== 'false' && req.body.replace !== false,
+      chunkOpts: opts,
       metadata: {
         type: path.extname(sourcePath).replace('.', '') || 'text',
         chunk_options: opts,
         ingested_via: req.file ? 'upload' : 'text'
       }
     });
-
-    recordIngest();
-    recordEmbeddings(model, chunks.length);
-    recordOutcome(true);
-    if (fallback) {
-      logEvent('WARN', 'embedding', 'Ollama indisponível — ingestão concluída via fallback OpenAI');
+    if (!result.chunks) {
+      return res.status(400).json({ error: 'Nenhum chunk gerado — texto vazio?' });
     }
-    logEvent('INFO', 'ingest', `Ingestão concluída: ${sourcePath} (${ids.length} chunks, ${model}, projeto ${project})`);
 
     res.status(201).json({
       project,
       source_path: sourcePath,
-      chunks: ids.length,
-      replaced_chunks: replaced,
-      embedding_model: model,
-      fallback: Boolean(fallback)
+      chunks: result.chunks,
+      replaced_chunks: result.replaced,
+      embedding_model: result.model,
+      fallback: Boolean(result.fallback)
     });
   } catch (err) {
-    recordOutcome(false);
-    logEvent('ERROR', 'ingest', `Falha na ingestão${sourceLabel ? ` de ${sourceLabel}` : ''}: ${err.message}`);
     next(err);
   }
 });

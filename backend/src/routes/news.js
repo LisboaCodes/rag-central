@@ -1,12 +1,23 @@
 import { Router } from 'express';
 import { askPerplexity, perplexityEnabled } from '../services/perplexity.js';
+import { syncRss, getRssStatus } from '../services/rss-scraper.js';
 import { getAgent } from '../services/db.js';
 import { logEvent } from '../services/activity.js';
 
 const router = Router();
 
-// GET /news/status — se a Perplexity está configurada
-router.get('/status', (req, res) => res.json({ enabled: perplexityEnabled() }));
+// GET /news/status — Perplexity + última sync do RSS e total ingerido
+router.get('/status', async (req, res) => {
+  res.json({ enabled: perplexityEnabled(), rss: await getRssStatus() });
+});
+
+// POST /news/sync — dispara o scraper de RSS manualmente
+router.post('/sync', async (req, res, next) => {
+  try {
+    const result = await syncRss();
+    res.json(result);
+  } catch (err) { err.status = 500; next(err); }
+});
 
 function parseItems(text) {
   try {

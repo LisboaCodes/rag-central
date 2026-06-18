@@ -18,7 +18,20 @@ export default function Novidades() {
   const [brief, setBrief] = useState(null);
   const [briefLoading, setBriefLoading] = useState(false);
 
-  useEffect(() => { api.news.status().then((s) => setEnabled(s.enabled)).catch(() => setEnabled(false)); }, []);
+  // RSS (alimenta a base sozinho)
+  const [rss, setRss] = useState(null);
+  const [syncing, setSyncing] = useState(false);
+
+  function loadStatus() {
+    api.news.status().then((s) => { setEnabled(s.enabled); setRss(s.rss); }).catch(() => setEnabled(false));
+  }
+  useEffect(() => { loadStatus(); }, []);
+
+  async function syncRss() {
+    setSyncing(true);
+    try { await api.news.sync(); loadStatus(); } catch { /* ignore */ }
+    finally { setSyncing(false); }
+  }
 
   async function load() {
     setLoading(true); setError(null);
@@ -37,19 +50,44 @@ export default function Novidades() {
     finally { setBriefLoading(false); }
   }
 
+  const RssPanel = (
+    <div className="rounded-xl border border-edge bg-surface p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-sm font-semibold"><Newspaper size={16} /> Feed automático (RSS → base de conhecimento)</p>
+        <button onClick={syncRss} disabled={syncing} className="flex items-center gap-1.5 rounded-lg border border-edge px-3 py-1.5 text-xs hover:border-blue-500 disabled:opacity-50">
+          <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} /> {syncing ? 'Sincronizando…' : 'Sincronizar agora'}
+        </button>
+      </div>
+      <p className="mt-2 text-[11px] text-muted">
+        Puxa OpenAI, Anthropic, HuggingFace, VentureBeat e TechCrunch a cada 6h e ingere na base (projeto <code className="text-violet-400">novidades-ia</code>) — os agentes passam a conhecer as novidades.
+      </p>
+      {rss && (
+        <p className="mt-2 text-[11px] text-muted">
+          📥 <strong className="text-body">{rss.totalIngested}</strong> artigos na base ·
+          última sync: {rss.lastSync ? new Date(rss.lastSync).toLocaleString('pt-BR') : 'ainda não'}
+          {rss.running && <span className="text-emerald-400"> · rodando…</span>}
+        </p>
+      )}
+    </div>
+  );
+
   if (enabled === false) {
     return (
-      <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 text-sm">
-        <p className="mb-2 flex items-center gap-2 font-semibold text-amber-400"><AlertTriangle size={16} /> Perplexity não configurada</p>
-        <p className="text-body/80">As novidades de IA vêm da Perplexity. Crie uma chave em{' '}
-          <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noreferrer" className="text-blue-400 underline">perplexity.ai/settings/api</a>{' '}
-          e cole em <strong>Configurações → Perplexity</strong>.</p>
+      <div className="space-y-4">
+        {RssPanel}
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-5 text-sm">
+          <p className="mb-2 flex items-center gap-2 font-semibold text-amber-400"><AlertTriangle size={16} /> Perplexity não configurada (opcional)</p>
+          <p className="text-body/80">O quadro com resumos por IA usa a Perplexity. Crie uma chave em{' '}
+            <a href="https://www.perplexity.ai/settings/api" target="_blank" rel="noreferrer" className="text-blue-400 underline">perplexity.ai/settings/api</a>{' '}
+            e cole em <strong>Configurações → Perplexity</strong>. (O feed RSS acima funciona sem isso.)</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
+      {RssPanel}
       <div className="flex items-center justify-between">
         <p className="flex items-center gap-2 text-sm font-semibold"><Newspaper size={16} /> Novidades do mundo de IA</p>
         <button onClick={load} disabled={loading} className="flex items-center gap-1.5 rounded-lg border border-edge px-3 py-1.5 text-xs hover:border-blue-500 disabled:opacity-50">
