@@ -133,10 +133,12 @@ async function generateReply({ agentKey, persona, prov, conversationId, latestTe
     ({ answer, model, toolsUsed } = onEvent
       ? await runWithToolsStream(prov, messages, ctx, onEvent, images)
       : await runWithTools(prov, messages, ctx, images));
+  } else if (onEvent) {
+    ({ answer, model } = await callOllamaStream(prov, messages, ctx, onEvent));
+    toolsUsed = [];
   } else {
     ({ answer, model } = await callOllama(prov, messages));
     toolsUsed = [];
-    if (onEvent) onEvent({ type: 'token', agent: agentKey, delta: answer });
   }
 
   // persiste a resposta (best-effort)
@@ -368,14 +370,49 @@ async function callOpenAICompatible(prov, messages) {
   return { answer, model: `${prov.apiBase}/${prov.model}` };
 }
 
-// Ollama nativo (/api/chat).
+// Ollama STREAMING (/api/chat com stream:true → NDJSON). Emite tokens via onEvent.
+// Sem timeout fixo — o stream mantém a conexão viva (evita corte do backend e do Cloudflare).
+async function callOllamaStream(prov, messages, ctx, onEvent) {
+  let res;
+  try {
+    res = await axios.post(
+      `${prov.ollamaUrl}/api/chat`,
+      { model: prov.ollamaModel, messages, stream: true, options: { temperature: 0.7 } },
+      { timeout: 0, responseType: 'stream' }
+    );
+  } catch (err) {
+    if (err.response?.status === 404) throw new Error(`Modelo "${prov.ollamaModel}" não encontrado no Ollama. Rode: ollama pull ${prov.ollamaModel}`);
+    throw new Error(`Falha ao falar com o Ollama (${prov.ollamaUrl}): ${err.code || err.message}`);
+  }
+  let answer = '', buffer = '';
+  await new Promise((resolve, reject) => {
+    res.data.on('data', (chunk) => {
+      buffer += chunk.toString('utf8');
+      let i;
+      while ((i = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, i).trim(); buffer = buffer.slice(i + 1);
+        if (!line) continue;
+        try {
+          const d = JSON.parse(line)?.message?.content;
+          if (d) { answer += d; onEvent({ type: 'token', agent: ctx.agent, delta: d }); }
+        } catch { /* linha parcial */ }
+      }
+    });
+    res.data.on('end', resolve);
+    res.data.on('error', reject);
+  });
+  if (!answer.trim()) throw new Error('Resposta vazia do Ollama em /api/chat');
+  return { answer: answer.trim(), model: `ollama/${prov.ollamaModel}` };
+}
+
+// Ollama nativo (/api/chat) — sem streaming (fallback).
 async function callOllama(prov, messages) {
   let res;
   try {
     res = await axios.post(
       `${prov.ollamaUrl}/api/chat`,
       { model: prov.ollamaModel, messages, stream: false, options: { temperature: 0.7 } },
-      { timeout: 120000 }
+      { timeout: 300000 }
     );
   } catch (err) {
     if (err.response?.status === 404) {
