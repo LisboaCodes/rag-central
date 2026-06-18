@@ -301,24 +301,28 @@ export default function Agents() {
   const { status } = useStatus();
   const runtime = status?.activity?.agents || {};
   const { agents, loading, refresh } = useAgents();
-  const [chatAgent, setChatAgent] = useState(null);
+  const [openKeys, setOpenKeys] = useState([]); // chats abertos simultâneos
   const [editing, setEditing] = useState(null); // agent | {} (novo)
+
+  const toggleChat = (key) => setOpenKeys((ks) => (ks.includes(key) ? ks.filter((k) => k !== key) : [...ks, key]));
+  const closeChat = (key) => setOpenKeys((ks) => ks.filter((k) => k !== key));
 
   async function remove(a, e) {
     e.stopPropagation();
     if (!confirm(`Excluir o agente ${a.key}? (as conversas dele continuam salvas)`)) return;
     const { api } = await import('../lib/api.js');
     await api.agents.remove(a.key);
-    if (chatAgent?.key === a.key) setChatAgent(null);
+    closeChat(a.key);
     refresh();
   }
+
+  const openAgents = openKeys.map((k) => agents.find((a) => a.key === k)).filter(Boolean);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted">
-          <strong className="text-body">Clique pra conversar</strong> · passe o mouse pra editar. Memória persistente;
-          mencione <code className="text-violet-400">@NOME</code> pra chamar outro agente.
+          <strong className="text-body">Clique pra abrir o chat</strong> — pode abrir <strong className="text-body">vários ao mesmo tempo</strong> (conversas paralelas, em tempo real). Passe o mouse pra editar.
         </p>
         <button onClick={() => setEditing(empty)} className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 to-violet-600 px-3 py-2 text-xs font-semibold text-white">
           <Plus size={14} /> Novo agente
@@ -334,9 +338,9 @@ export default function Agents() {
           return (
             <div
               key={a.key}
-              onClick={() => setChatAgent(a)}
+              onClick={() => toggleChat(a.key)}
               className={`group relative cursor-pointer rounded-xl border bg-surface p-5 transition-colors hover:border-blue-500 ${
-                chatAgent?.key === a.key ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-edge'
+                openKeys.includes(a.key) ? 'border-blue-500 ring-1 ring-blue-500/40' : 'border-edge'
               }`}
             >
               <div className="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -371,17 +375,21 @@ export default function Agents() {
         </button>
       </div>
 
-      {chatAgent && (
-        <div className="flex h-[520px] flex-col overflow-hidden rounded-xl border border-edge bg-surface">
-          <div className="flex items-center gap-3 border-b border-edge px-4 py-3">
-            <Avatar agent={chatAgent} size={36} />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">{chatAgent.name}</p>
-              <p className="truncate text-[11px] text-muted">{chatAgent.role} · {chatAgent.model}</p>
+      {openAgents.length > 0 && (
+        <div className={`grid grid-cols-1 gap-4 ${openAgents.length > 1 ? 'xl:grid-cols-2' : ''}`}>
+          {openAgents.map((a) => (
+            <div key={a.key} className="flex h-[520px] flex-col overflow-hidden rounded-xl border border-edge bg-surface">
+              <div className="flex items-center gap-3 border-b border-edge px-4 py-3">
+                <Avatar agent={a} size={36} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{a.name}</p>
+                  <p className="truncate text-[11px] text-muted">{a.role} · {a.model}</p>
+                </div>
+                <button onClick={() => closeChat(a.key)} className="rounded p-1 text-muted hover:bg-white/10 hover:text-body"><X size={16} /></button>
+              </div>
+              <AgentChat agent={a} className="min-h-0 flex-1" />
             </div>
-            <button onClick={() => setChatAgent(null)} className="rounded p-1 text-muted hover:bg-white/10 hover:text-body"><X size={16} /></button>
-          </div>
-          <AgentChat agent={chatAgent} className="min-h-0 flex-1" />
+          ))}
         </div>
       )}
 

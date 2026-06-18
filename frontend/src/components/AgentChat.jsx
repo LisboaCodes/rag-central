@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Send, FileText, Brain, Wrench, Paperclip, X } from 'lucide-react';
 import { useAgents, hexOf } from '../lib/AgentsContext.jsx';
 import { API_BASE } from '../lib/api.js';
+import Markdown from './Markdown.jsx';
 
 const readDataUrl = (file) => new Promise((resolve) => {
   const r = new FileReader();
@@ -9,23 +10,6 @@ const readDataUrl = (file) => new Promise((resolve) => {
   r.readAsDataURL(file);
 });
 
-// formatação estilo WhatsApp: *negrito* _itálico_ ~tachado~ `mono`
-function fmt(text) {
-  const re = /(\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~|`[^`\n]+`)/g;
-  const out = [];
-  let last = 0, m, k = 0;
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    const t = m[0], inner = t.slice(1, -1);
-    if (t[0] === '*') out.push(<strong key={k++}>{inner}</strong>);
-    else if (t[0] === '_') out.push(<em key={k++}>{inner}</em>);
-    else if (t[0] === '~') out.push(<span key={k++} className="line-through">{inner}</span>);
-    else out.push(<code key={k++} className="rounded bg-black/20 px-1 text-[0.85em]">{inner}</code>);
-    last = m.index + t.length;
-  }
-  if (last < text.length) out.push(text.slice(last));
-  return out;
-}
 
 // Chat reutilizável com um agente (com memória + agente-a-agente via @menção).
 // Gerencia conversationId e histórico internamente; reseta ao trocar de agente.
@@ -208,12 +192,14 @@ export default function AgentChat({ agent, onReply, className = '' }) {
                       ))}
                     </div>
                   )}
-                  {(m.content || m.role !== 'user') && (
-                  <p className="whitespace-pre-wrap break-words">
-                    {fmt(m.content || '')}
-                    {m.streaming && <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-current align-middle" />}
-                  </p>
-                  )}
+                  {m.role === 'assistant' ? (
+                    <div className="text-sm">
+                      <Markdown>{m.content || ''}</Markdown>
+                      {m.streaming && <span className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-current align-middle" />}
+                    </div>
+                  ) : (m.content && (
+                    <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                  ))}
                   {m.sources?.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-1 border-t border-edge/60 pt-2">
                       {m.sources.map((s, j) => (

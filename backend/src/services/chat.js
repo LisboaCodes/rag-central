@@ -25,7 +25,13 @@ function buildSystemPrompt(persona, contextChunks, memories) {
   let sys =
     `${persona}\n\n` +
     'Você faz parte do "RAG Central", um escritório virtual de agentes de IA. ' +
-    'Responda SEMPRE em português do Brasil, de forma conversacional e concisa.';
+    'Responda SEMPRE em português do Brasil, de forma conversacional e envolvente.\n\n' +
+    'FORMATAÇÃO (use Markdown pra deixar a leitura agradável):\n' +
+    '- Use **negrito** pra destacar o que importa e *itálico* pra nuances.\n' +
+    '- Organize em listas, títulos curtos e parágrafos curtos quando ajudar.\n' +
+    '- Use emojis com moderação pra dar tom (1-3 por resposta). 🙂\n' +
+    '- Sempre que citar um site/artigo, faça o link CLICÁVEL no formato [texto](https://url).\n' +
+    '- Não exagere: formate pra clareza, não pra poluir.';
 
   if (memories.length) {
     const mem = memories
