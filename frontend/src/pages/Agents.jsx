@@ -22,7 +22,19 @@ export function Avatar({ agent, size = 48 }) {
   );
 }
 
-const empty = { name: '', role: '', bio: '', persona: '', gender: '', model: '', color: 'blue', avatar_url: '', sprite_url: '' };
+const empty = {
+  name: '', role: '', bio: '', persona: '', gender: '', model: '', color: 'blue', avatar_url: '', sprite_url: '',
+  chat_provider: 'default', chat_api_base: '', chat_api_key: '', chat_model: ''
+};
+
+// presets pra facilitar a escolha da API (OpenAI-compatible)
+const API_PRESETS = [
+  { label: 'MiMo (Xiaomi)', base: 'https://api.xiaomimimo.com/v1', model: 'mimo-v2.5-pro' },
+  { label: 'Groq', base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
+  { label: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o' },
+  { label: 'Anthropic (Claude)', base: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-6' },
+  { label: 'OpenRouter', base: 'https://openrouter.ai/api/v1', model: '' }
+];
 
 function Editor({ initial, onClose, onSaved }) {
   const { refresh } = useAgents();
@@ -127,9 +139,65 @@ function Editor({ initial, onClose, onSaved }) {
               <input value={form.gender} onChange={(e) => set('gender', e.target.value)} placeholder="feminino / masculino / —" className="inp" />
             </Field>
           </div>
-          <Field label="Modelo (exibição)">
-            <input value={form.model} onChange={(e) => set('model', e.target.value)} placeholder="ex: MiMo v2.5 Pro" className="inp" />
+          <Field label="Modelo (rótulo de exibição)">
+            <input value={form.model} onChange={(e) => set('model', e.target.value)} placeholder="ex: MiMo v2.5 Pro (só pra mostrar)" className="inp" />
           </Field>
+
+          {/* conexão de IA deste agente */}
+          <div className="rounded-lg border border-edge bg-background/40 p-3 space-y-3">
+            <Field label="Qual IA este agente usa?">
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-background p-1">
+                {[
+                  { v: 'default', l: 'Padrão (global)' },
+                  { v: 'openai', l: 'API própria' },
+                  { v: 'ollama', l: 'Ollama' }
+                ].map((p) => (
+                  <button key={p.v} type="button" onClick={() => set('chat_provider', p.v)}
+                    className={`rounded-md py-1.5 text-[11px] font-semibold transition-colors ${form.chat_provider === p.v ? 'bg-gradient-to-r from-blue-600 to-violet-600 text-white' : 'text-muted hover:text-body'}`}>
+                    {p.l}
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            {form.chat_provider === 'default' && (
+              <p className="text-[11px] text-muted">Usa o provedor global definido em <strong>Configurações → Chat dos Agentes</strong>.</p>
+            )}
+
+            {form.chat_provider === 'openai' && (
+              <>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted">Preset rápido</label>
+                  <select onChange={(e) => { const p = API_PRESETS[e.target.value]; if (p) { set('chat_api_base', p.base); if (p.model) set('chat_model', p.model); } }}
+                    defaultValue="" className="inp">
+                    <option value="">escolha pra preencher…</option>
+                    {API_PRESETS.map((p, i) => <option key={p.label} value={i}>{p.label}</option>)}
+                  </select>
+                </div>
+                <Field label="Base URL (OpenAI-compatible)">
+                  <input value={form.chat_api_base || ''} onChange={(e) => set('chat_api_base', e.target.value)} placeholder="https://api.groq.com/openai/v1" className="inp" />
+                </Field>
+                <Field label="API Key">
+                  <input value={form.chat_api_key || ''} onChange={(e) => set('chat_api_key', e.target.value)} placeholder="sk-… (deixe ••••  pra manter)" autoComplete="off" className="inp" />
+                </Field>
+                <Field label="Modelo (ID da API)">
+                  <input value={form.chat_model || ''} onChange={(e) => set('chat_model', e.target.value)} placeholder="ex: llama-3.3-70b-versatile" className="inp" />
+                </Field>
+              </>
+            )}
+
+            {form.chat_provider === 'ollama' && (
+              <>
+                <Field label="URL do Ollama (vazio = a global)">
+                  <input value={form.chat_api_base || ''} onChange={(e) => set('chat_api_base', e.target.value)} placeholder="http://ip-do-lxc101:11434" className="inp" />
+                </Field>
+                <Field label="Modelo do Ollama">
+                  <input value={form.chat_model || ''} onChange={(e) => set('chat_model', e.target.value)} placeholder="ex: llama3.1" className="inp" />
+                </Field>
+              </>
+            )}
+          </div>
+
           <Field label="Bio (curta)">
             <input value={form.bio} onChange={(e) => set('bio', e.target.value)} placeholder="uma linha sobre o agente" className="inp" />
           </Field>

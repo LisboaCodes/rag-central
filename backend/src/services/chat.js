@@ -70,9 +70,24 @@ const embedOne = async (text) => {
 
 // Gera UMA resposta de um agente dentro de uma conversa já existente.
 // O histórico recente (que inclui a última fala do usuário e respostas de
-// outros agentes nesta rodada) dá o contexto. Persiste só a resposta.
-async function generateReply({ agentKey, persona, conversationId, latestText, qEmbedding, embModel, project, group, images }, onEvent) {
+// resolve o provedor/modelo efetivo de um agente (override próprio ou global)
+function providerFor(agent) {
   const s = getSettings();
+  const p = agent?.chat_provider || 'default';
+  if (p === 'openai') {
+    return { provider: 'openai', apiBase: agent.chat_api_base || s.CHAT_API_BASE, apiKey: agent.chat_api_key || s.CHAT_API_KEY, model: agent.chat_model || s.CHAT_MODEL };
+  }
+  if (p === 'ollama') {
+    return { provider: 'ollama', ollamaUrl: agent.chat_api_base || s.OLLAMA_URL, ollamaModel: agent.chat_model || s.OLLAMA_CHAT_MODEL };
+  }
+  // default → usa o global das Configurações
+  return s.CHAT_PROVIDER === 'openai'
+    ? { provider: 'openai', apiBase: s.CHAT_API_BASE, apiKey: s.CHAT_API_KEY, model: s.CHAT_MODEL }
+    : { provider: 'ollama', ollamaUrl: s.OLLAMA_URL, ollamaModel: s.OLLAMA_CHAT_MODEL };
+}
+
+// outros agentes nesta rodada) dá o contexto. Persiste só a resposta.
+async function generateReply({ agentKey, persona, prov, conversationId, latestText, qEmbedding, embModel, project, group, images }, onEvent) {
 
   let contextChunks = [];
   let memories = [];
@@ -104,7 +119,7 @@ async function generateReply({ agentKey, persona, conversationId, latestText, qE
       : { role: 'user', content: m.content }
   );
 
-  if (s.CHAT_PROVIDER === 'openai') {
+  if (prov.provider === 'openai') {
     system +=
       '\n\nVocê tem FERRAMENTAS (function-calling): pode buscar na base de conhecimento, ' +
       'alimentar a base com notas, e operar repositórios do GitHub (listar, ler, commitar). ' +
@@ -114,12 +129,12 @@ async function generateReply({ agentKey, persona, conversationId, latestText, qE
 
   const ctx = { project: project || null, agent: agentKey };
   let answer, model, toolsUsed;
-  if (s.CHAT_PROVIDER === 'openai') {
+  if (prov.provider === 'openai') {
     ({ answer, model, toolsUsed } = onEvent
-      ? await runWithToolsStream(s, messages, ctx, onEvent, images)
-      : await runWithTools(s, messages, ctx, images));
+      ? await runWithToolsStream(prov, messages, ctx, onEvent, images)
+      : await runWithTools(prov, messages, ctx, images));
   } else {
-    ({ answer, model } = await callOllama(s, messages));
+    ({ answer, model } = await callOllama(prov, messages));
     toolsUsed = [];
     if (onEvent) onEvent({ type: 'token', agent: agentKey, delta: answer });
   }
@@ -162,8 +177,8 @@ function withImages(messages, images) {
 // Loop de function-calling para provedores OpenAI-compatible (MiMo, Groq…).
 // O modelo pode chamar ferramentas; executamos e devolvemos o resultado até
 // ele produzir a resposta final (máx. 6 rodadas). Suporta imagens (vision).
-async function runWithTools(s, baseMessages, ctx, images) {
-  const client = new OpenAI({ apiKey: s.CHAT_API_KEY, baseURL: s.CHAT_API_BASE });
+async function runWithTools(prov, baseMessages, ctx, images) {
+  const client = new OpenAI({ apiKey: prov.apiKey, baseURL: prov.apiBase });
   const tools = getToolDefs();
   let messages = withImages([...baseMessages], images);
   let triedNoImg = false;
@@ -173,7 +188,7 @@ async function runWithTools(s, baseMessages, ctx, images) {
     let res;
     try {
       res = await client.chat.completions.create({
-        model: s.CHAT_MODEL, messages, temperature: 0.7, tools, tool_choice: 'auto'
+        model: prov.model, messages, temperature: 0.7, tools, tool_choice: 'auto'
       });
     } catch (err) {
       // modelo pode não suportar visão → tenta uma vez sem as imagens
@@ -182,14 +197,14 @@ async function runWithTools(s, baseMessages, ctx, images) {
         messages = [...baseMessages];
         i--; continue;
       }
-      throw new Error(`Falha no provedor de chat (${s.CHAT_API_BASE}): ${err.message}`);
+      throw new Error(`Falha no provedor de chat (${prov.apiBase}): ${err.message}`);
     }
     const msg = res.choices?.[0]?.message;
     if (!msg) throw new Error('Resposta vazia do provedor de chat');
 
     const calls = msg.tool_calls || [];
     if (calls.length === 0) {
-      return { answer: (msg.content || '').trim(), model: `${s.CHAT_API_BASE}/${s.CHAT_MODEL}`, toolsUsed };
+      return { answer: (msg.content || '').trim(), model: `${prov.apiBase}/${prov.model}`, toolsUsed };
     }
 
     // registra a fala do assistente (com as chamadas) e executa cada ferramenta
@@ -202,29 +217,29 @@ async function runWithTools(s, baseMessages, ctx, images) {
       messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result).slice(0, 6000) });
     }
   }
-  return { answer: 'Executei várias etapas mas atingi o limite de ações. Posso continuar se quiser.', model: `${s.CHAT_API_BASE}/${s.CHAT_MODEL}`, toolsUsed };
+  return { answer: 'Executei várias etapas mas atingi o limite de ações. Posso continuar se quiser.', model: `${prov.apiBase}/${prov.model}`, toolsUsed };
 }
 
 // Versão STREAMING do loop de tool-use. Emite tokens da resposta final via
 // onEvent({type:'token', delta}). Ferramentas são executadas entre as rodadas
 // (emite {type:'tool', name}); só a resposta final (sem tool_calls) é streamada.
-async function runWithToolsStream(s, baseMessages, ctx, onEvent, images) {
-  const client = new OpenAI({ apiKey: s.CHAT_API_KEY, baseURL: s.CHAT_API_BASE });
+async function runWithToolsStream(prov, baseMessages, ctx, onEvent, images) {
+  const client = new OpenAI({ apiKey: prov.apiKey, baseURL: prov.apiBase });
   const tools = getToolDefs();
   let messages = withImages([...baseMessages], images);
   let triedNoImg = false;
   const toolsUsed = [];
-  const model = `${s.CHAT_API_BASE}/${s.CHAT_MODEL}`;
+  const model = `${prov.apiBase}/${prov.model}`;
 
   for (let i = 0; i < 6; i++) {
     let stream;
     try {
       stream = await client.chat.completions.create({
-        model: s.CHAT_MODEL, messages, temperature: 0.7, tools, tool_choice: 'auto', stream: true
+        model: prov.model, messages, temperature: 0.7, tools, tool_choice: 'auto', stream: true
       });
     } catch (err) {
       if (images?.length && !triedNoImg) { triedNoImg = true; messages = [...baseMessages]; i--; continue; }
-      throw new Error(`Falha no provedor de chat (${s.CHAT_API_BASE}): ${err.message}`);
+      throw new Error(`Falha no provedor de chat (${prov.apiBase}): ${err.message}`);
     }
 
     let content = '';
@@ -313,7 +328,8 @@ export async function chatWithAgent({ agent, message, conversationId, history = 
     for (const a of responders) {
       if (onEvent) onEvent({ type: 'agent_start', agent: a });
       const reply = await generateReply({
-        agentKey: a, persona: personaOf(agentMap.get(a)), conversationId: convId, latestText: message,
+        agentKey: a, persona: personaOf(agentMap.get(a)), prov: providerFor(agentMap.get(a)),
+        conversationId: convId, latestText: message,
         qEmbedding, embModel, project, group: responders, images: a === key ? images : null
       }, onEvent);
       if (onEvent) onEvent({ type: 'agent_done', agent: a, sources: reply.sources, memories: reply.memories, toolsUsed: reply.toolsUsed });
@@ -321,7 +337,7 @@ export async function chatWithAgent({ agent, message, conversationId, history = 
     }
   } else {
     // fallback sem banco: só o primário
-    const s = getSettings();
+    const prov = providerFor(primary);
     const recent = (Array.isArray(history) ? history : [])
       .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
       .slice(-8).map((m) => ({ role: m.role, content: m.content }));
@@ -330,60 +346,53 @@ export async function chatWithAgent({ agent, message, conversationId, history = 
       ...recent, { role: 'user', content: message }
     ];
     const { answer, model } =
-      s.CHAT_PROVIDER === 'openai' ? await callOpenAICompatible(s, messages) : await callOllama(s, messages);
+      prov.provider === 'openai' ? await callOpenAICompatible(prov, messages) : await callOllama(prov, messages);
     replies.push({ agent: key, answer, sources: [], memories: [], model });
   }
 
   return { conversationId: convId, replies };
 }
 
-// Endpoint OpenAI-compatible: Groq, OpenRouter, OpenAI, ou o próprio Ollama em /v1.
-async function callOpenAICompatible(s, messages) {
-  if (!s.CHAT_API_KEY) throw new Error('CHAT_API_KEY não configurada (necessária para o provedor "openai")');
-  const client = new OpenAI({ apiKey: s.CHAT_API_KEY, baseURL: s.CHAT_API_BASE });
+// Endpoint OpenAI-compatible: MiMo, Groq, OpenAI, Anthropic(compat), OpenRouter, Ollama /v1.
+async function callOpenAICompatible(prov, messages) {
+  if (!prov.apiKey) throw new Error('Chave de API não configurada para o provedor "openai"');
+  const client = new OpenAI({ apiKey: prov.apiKey, baseURL: prov.apiBase });
   let res;
   try {
-    res = await client.chat.completions.create({
-      model: s.CHAT_MODEL,
-      messages,
-      temperature: 0.7
-    });
+    res = await client.chat.completions.create({ model: prov.model, messages, temperature: 0.7 });
   } catch (err) {
-    throw new Error(`Falha no provedor de chat (${s.CHAT_API_BASE}): ${err.message}`);
+    throw new Error(`Falha no provedor de chat (${prov.apiBase}): ${err.message}`);
   }
   const answer = res.choices?.[0]?.message?.content?.trim();
   if (!answer) throw new Error('Resposta vazia do provedor de chat');
-  return { answer, model: `${s.CHAT_API_BASE}/${s.CHAT_MODEL}` };
+  return { answer, model: `${prov.apiBase}/${prov.model}` };
 }
 
 // Ollama nativo (/api/chat).
-async function callOllama(s, messages) {
+async function callOllama(prov, messages) {
   let res;
   try {
     res = await axios.post(
-      `${s.OLLAMA_URL}/api/chat`,
-      { model: s.OLLAMA_CHAT_MODEL, messages, stream: false, options: { temperature: 0.7 } },
+      `${prov.ollamaUrl}/api/chat`,
+      { model: prov.ollamaModel, messages, stream: false, options: { temperature: 0.7 } },
       { timeout: 120000 }
     );
   } catch (err) {
     if (err.response?.status === 404) {
-      throw new Error(
-        `Modelo de chat "${s.OLLAMA_CHAT_MODEL}" não encontrado no Ollama. ` +
-          `Rode: ollama pull ${s.OLLAMA_CHAT_MODEL}`
-      );
+      throw new Error(`Modelo de chat "${prov.ollamaModel}" não encontrado no Ollama. Rode: ollama pull ${prov.ollamaModel}`);
     }
-    throw new Error(`Falha ao falar com o Ollama (${s.OLLAMA_URL}): ${err.code || err.message}`);
+    throw new Error(`Falha ao falar com o Ollama (${prov.ollamaUrl}): ${err.code || err.message}`);
   }
   const answer = res.data?.message?.content?.trim();
   if (!answer) throw new Error('Resposta vazia do Ollama em /api/chat');
-  return { answer, model: `ollama/${s.OLLAMA_CHAT_MODEL}` };
+  return { answer, model: `ollama/${prov.ollamaModel}` };
 }
 
-// Completação simples (sem ferramentas) usando o provedor configurado.
+// Completação simples (sem ferramentas) usando o provedor global.
 // Reusado pela consolidação de memória e outros utilitários.
 export async function completeChat(messages) {
-  const s = getSettings();
-  return s.CHAT_PROVIDER === 'openai' ? callOpenAICompatible(s, messages) : callOllama(s, messages);
+  const prov = providerFor(null);
+  return prov.provider === 'openai' ? callOpenAICompatible(prov, messages) : callOllama(prov, messages);
 }
 
 // Loop de tool-use exposto (usado pelo streaming/rotas externas).

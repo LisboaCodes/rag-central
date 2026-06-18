@@ -92,8 +92,13 @@ export async function initSchema() {
       updated_at  TIMESTAMPTZ DEFAULT NOW()
     )
   `);
-  // tabela já podia existir sem a coluna — garante o sprite_url
+  // tabela já podia existir sem a coluna — garante colunas novas
   await pool.query('ALTER TABLE agents ADD COLUMN IF NOT EXISTS sprite_url TEXT');
+  // provedor/modelo por agente (vazio = usa o global das Configurações)
+  await pool.query("ALTER TABLE agents ADD COLUMN IF NOT EXISTS chat_provider TEXT DEFAULT 'default'");
+  await pool.query('ALTER TABLE agents ADD COLUMN IF NOT EXISTS chat_api_base TEXT');
+  await pool.query('ALTER TABLE agents ADD COLUMN IF NOT EXISTS chat_api_key TEXT');
+  await pool.query('ALTER TABLE agents ADD COLUMN IF NOT EXISTS chat_model TEXT');
   await seedAgents();
 }
 
@@ -141,16 +146,19 @@ export async function createAgent(a) {
   const key = String(a.key || a.name || '').trim().toUpperCase().replace(/\s+/g, '_');
   if (!key) throw new Error('nome/key obrigatório');
   const { rows } = await pool.query(
-    `INSERT INTO agents (key, name, role, bio, persona, model, color, gender, avatar_url, sprite_url, sort_order)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+    `INSERT INTO agents (key, name, role, bio, persona, model, color, gender, avatar_url, sprite_url, sort_order,
+                         chat_provider, chat_api_base, chat_api_key, chat_model)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
     [key, a.name || key, a.role || null, a.bio || null, a.persona || null,
-     a.model || null, a.color || 'blue', a.gender || null, a.avatar_url || null, a.sprite_url || null, a.sort_order ?? 100]
+     a.model || null, a.color || 'blue', a.gender || null, a.avatar_url || null, a.sprite_url || null, a.sort_order ?? 100,
+     a.chat_provider || 'default', a.chat_api_base || null, a.chat_api_key || null, a.chat_model || null]
   );
   return rows[0];
 }
 
 export async function updateAgent(key, patch) {
-  const fields = ['name', 'role', 'bio', 'persona', 'model', 'color', 'gender', 'avatar_url', 'sprite_url', 'sort_order'];
+  const fields = ['name', 'role', 'bio', 'persona', 'model', 'color', 'gender', 'avatar_url', 'sprite_url', 'sort_order',
+    'chat_provider', 'chat_api_base', 'chat_api_key', 'chat_model'];
   const sets = [];
   const vals = [];
   for (const f of fields) {
