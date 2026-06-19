@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw, Upload, Search, Settings2, AlertTriangle, Info } from 'lucide-react';
+import { RefreshCw, Upload, Search, Settings2, AlertTriangle, Info, Brain, ArrowUpRight } from 'lucide-react';
 import MetricCard from '../components/MetricCard.jsx';
 import ServiceStatus from '../components/ServiceStatus.jsx';
 import AgentCard from '../components/AgentCard.jsx';
@@ -27,16 +27,55 @@ const LOG_ICONS = {
   config: { Icon: Settings2, classes: 'bg-violet-500/15 text-violet-400' }
 };
 
+const BRAIN_KIND = {
+  fato:      { color: '#a78bfa', label: 'Fatos' },
+  nota:      { color: '#34d399', label: 'Notas' },
+  documento: { color: '#60a5fa', label: 'Docs' },
+  mensagem:  { color: '#22d3ee', label: 'Mensagens' }
+};
+
+// mini-gráfico de linha (SVG puro) pra mostrar o cérebro crescendo
+function Sparkline({ values, color = '#8b5cf6', w = 240, h = 56 }) {
+  if (!values || values.length < 2) return <div className="h-14" />;
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = max - min || 1;
+  const stepX = w / (values.length - 1);
+  const pts = values.map((v, i) => [i * stepX, h - 4 - ((v - min) / span) * (h - 10)]);
+  const line = pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const area = `0,${h} ${line} ${w},${h}`;
+  return (
+    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="overflow-visible">
+      <defs>
+        <linearGradient id="spark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.35" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={area} fill="url(#spark)" />
+      <polyline points={line} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={pts[pts.length - 1][0]} cy={pts[pts.length - 1][1]} r="3" fill={color} />
+    </svg>
+  );
+}
+
 export default function Dashboard() {
   const { status, error, updatedAt, refresh } = useStatus();
   const { agents: roster } = useAgents();
   const [recentLogs, setRecentLogs] = useState([]);
+  const [brain, setBrain] = useState(null);
   const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     const load = () => api.logs({ limit: 5 }).then((r) => setRecentLogs(r.logs)).catch(() => {});
     load();
     const timer = setInterval(load, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const load = () => api.memory.stats().then(setBrain).catch(() => {});
+    load();
+    const timer = setInterval(load, 30000);
     return () => clearInterval(timer);
   }, []);
 
@@ -157,6 +196,46 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {metrics.map((m) => <MetricCard key={m.id} {...m} />)}
       </div>
+
+      {/* cérebro — tamanho e crescimento */}
+      {brain && (
+        <div className="flex flex-col gap-4 rounded-xl border border-edge bg-surface p-5 md:flex-row md:items-center">
+          <div className="flex items-center gap-4 md:w-64">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500/20 to-blue-500/20 text-violet-400">
+              <Brain size={22} />
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-muted">Tamanho do Cérebro</p>
+              <p className="text-2xl font-bold leading-tight">{fmtNumber(brain.total)} <span className="text-sm font-normal text-muted">memórias</span></p>
+              {(() => {
+                const s = brain.series || [];
+                const grew = s.length ? s[s.length - 1].total - s[0].total : 0;
+                return <p className="text-[11px] text-emerald-400">+{fmtNumber(grew)} nos últimos 14 dias</p>;
+              })()}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 md:flex-1">
+            {(brain.by_kind || []).map((k) => {
+              const meta = BRAIN_KIND[k.kind] || { color: '#94a3b8', label: k.kind };
+              return (
+                <span key={k.kind} className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-body/80">
+                  <span className="h-2 w-2 rounded-full" style={{ background: meta.color }} />
+                  {meta.label}: <strong className="text-body">{fmtNumber(k.n)}</strong>
+                </span>
+              );
+            })}
+          </div>
+
+          <div className="md:w-72">
+            <Sparkline values={(brain.series || []).map((p) => p.total)} />
+          </div>
+
+          <a href="/cerebro" className="flex shrink-0 items-center gap-1 self-start rounded-lg border border-edge px-3 py-2 text-xs font-medium text-muted hover:border-violet-500/50 hover:text-violet-400 md:self-center">
+            Ver cérebro <ArrowUpRight size={13} />
+          </a>
+        </div>
+      )}
 
       {/* linha 2 — serviços / modo embedding / agentes */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-10">

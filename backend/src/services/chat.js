@@ -35,13 +35,19 @@ function buildSystemPrompt(persona, contextChunks, memories) {
     '- Não exagere: formate pra clareza, não pra poluir.';
 
   if (memories.length) {
+    // cérebro coletivo: cada lembrança é marcada com QUEM aprendeu, pra um
+    // agente poder aproveitar o que outro já descobriu.
     const mem = memories
-      .map((m, i) => `[mem ${i + 1}] ${m.content.slice(0, 400)}`)
+      .map((m) => {
+        const who = m.agent ? `da ${m.agent}` : 'do usuário';
+        return `[${who}] ${m.content.slice(0, 400)}`;
+      })
       .join('\n');
     sys +=
-      '\n\nVocê TEM MEMÓRIA de conversas anteriores. Trechos relevantes do que já foi ' +
-      'conversado (use para manter continuidade e lembrar do que o usuário já disse):\n' +
-      '=== MEMÓRIA ===\n' + mem + '\n=== FIM DA MEMÓRIA ===';
+      '\n\nVocê e os outros agentes compartilham uma MEMÓRIA DE EQUIPE. Abaixo, trechos ' +
+      'relevantes do que já foi conversado/aprendido (a origem está marcada — use para manter ' +
+      'continuidade, lembrar do que o usuário já disse e aproveitar o que um colega já descobriu):\n' +
+      '=== MEMÓRIA DA EQUIPE ===\n' + mem + '\n=== FIM DA MEMÓRIA ===';
   }
 
   if (contextChunks.length) {
@@ -119,7 +125,8 @@ async function generateReply({ agentKey, persona, prov, conversationId, latestTe
       contextChunks = await searchSimilar({ embedding: qEmbedding, model: embModel, project: project || null, topK: 4, matchModel: true });
     } catch { /* db off */ }
     try {
-      memories = await searchMessages({ embedding: qEmbedding, model: embModel, agent: agentKey, excludeConversationId: conversationId, topK: 4, matchModel: true });
+      // agent: null → cérebro coletivo (relembra de TODOS os agentes, não só o próprio)
+      memories = await searchMessages({ embedding: qEmbedding, model: embModel, agent: null, excludeConversationId: conversationId, topK: 6, matchModel: true });
     } catch { /* db off */ }
   }
 
@@ -366,6 +373,8 @@ export async function chatWithAgent({ agent, message, conversationId, history = 
       if (onEvent) onEvent({ type: 'agent_done', agent: a, sources: reply.sources, memories: reply.memories, toolsUsed: reply.toolsUsed });
       replies.push(reply);
     }
+    // auto-consolidação em background (import dinâmico evita ciclo chat↔memory)
+    import('./memory.js').then((m) => m.maybeAutoConsolidate(convId)).catch(() => {});
   } else {
     // fallback sem banco: só o primário
     const prov = providerFor(primary);

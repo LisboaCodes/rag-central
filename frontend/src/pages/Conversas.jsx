@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Trash2, MessageSquare, Brain, RefreshCw, User } from 'lucide-react';
 import { useAgents, hexOf } from '../lib/AgentsContext.jsx';
 import { api } from '../lib/api.js';
@@ -14,6 +15,7 @@ export default function Conversas() {
   const [loadingThread, setLoadingThread] = useState(false);
   const [consolidating, setConsolidating] = useState(false);
   const [consolidated, setConsolidated] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   async function consolidate(id) {
     setConsolidating(true); setConsolidated(null); setError(null);
@@ -33,6 +35,13 @@ export default function Conversas() {
   }
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [filter]);
+
+  // veio do grafo com ?id=12 → abre a conversa direto
+  useEffect(() => {
+    const id = searchParams.get('id');
+    if (id) { open(parseInt(id, 10)); setSearchParams({}, { replace: true }); }
+    // eslint-disable-next-line
+  }, []);
 
   async function open(id) {
     setSelected(id); setLoadingThread(true); setThread(null); setConsolidated(null);

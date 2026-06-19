@@ -52,6 +52,9 @@ export async function initSchema() {
       updated_at  TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // marca quantas mensagens já viraram "fato consolidado" (auto-consolidação)
+  await pool.query('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS consolidated_at TIMESTAMPTZ');
+  await pool.query('ALTER TABLE conversations ADD COLUMN IF NOT EXISTS consolidated_msgs INT DEFAULT 0');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS messages (
       id              BIGSERIAL PRIMARY KEY,
@@ -392,8 +395,9 @@ export async function insertMessage({ conversationId, role, agent, content, embe
   return res.rows[0];
 }
 
-// memória de longo prazo: mensagens semanticamente parecidas do mesmo agente,
-// excluindo a conversa atual (pra trazer contexto de OUTRAS conversas).
+// memória de longo prazo: mensagens semanticamente parecidas.
+// agent=null → CÉREBRO COLETIVO: recupera de TODOS os agentes (cada origem é
+// marcada no recall). Passando agent=X restringe a um agente específico.
 export async function searchMessages({ embedding, model, agent, excludeConversationId, topK = 4, matchModel = true }) {
   const params = [toVectorLiteral(embedding)];
   const where = ['embedding IS NOT NULL'];
@@ -411,4 +415,224 @@ export async function searchMessages({ embedding, model, agent, excludeConversat
     params
   );
   return res.rows.map((r) => ({ ...r, similarity: Number(r.similarity) }));
+}
+
+// --- CENTRAL DE MEMÓRIA ----------------------------------------------------
+// Visão unificada de tudo que foi "aprendido": documentos ingeridos, fatos
+// consolidados (memoria-consolidada), notas de agentes (memoria-agentes) e as
+// mensagens das conversas. Cada item tem um uid 'doc:<id>' ou 'msg:<id>' que
+// as rotas de editar/excluir usam pra saber em qual tabela mexer.
+const MEM_CTE = `
+  WITH mem AS (
+    SELECT 'doc:' || id AS uid, id, 'documents' AS store,
+      CASE project
+        WHEN 'memoria-consolidada' THEN 'fato'
+        WHEN 'memoria-agentes'     THEN 'nota'
+        ELSE 'documento'
+      END AS kind,
+      project, source_path AS ref, chunk_index, chunk_text AS text,
+      COALESCE(NULLIF(metadata->>'by',''), NULLIF(metadata->>'agent','')) AS agent,
+      embedding_model AS model, created_at, updated_at
+    FROM documents
+    UNION ALL
+    SELECT 'msg:' || id AS uid, id, 'messages' AS store,
+      'mensagem' AS kind,
+      NULL AS project, 'conversa #' || conversation_id AS ref, 0 AS chunk_index, content AS text,
+      COALESCE(agent, CASE WHEN role = 'user' THEN 'Usuário' ELSE 'Equipe' END) AS agent,
+      embedding_model AS model, created_at, created_at AS updated_at
+    FROM messages
+  )
+`;
+
+export async function listMemory({ kind, project, agent, q, limit = 60, offset = 0 } = {}) {
+  const params = [kind || null, project || null, agent || null, q ? `%${q}%` : null, limit, offset];
+  const res = await pool.query(
+    `${MEM_CTE}
+     SELECT uid, id, store, kind, project, ref, chunk_index, text, agent, model, created_at, updated_at
+     FROM mem
+     WHERE ($1::text IS NULL OR kind = $1)
+       AND ($2::text IS NULL OR project = $2)
+       AND ($3::text IS NULL OR agent = $3)
+       AND ($4::text IS NULL OR text ILIKE $4)
+     ORDER BY created_at DESC
+     LIMIT $5 OFFSET $6`,
+    params
+  );
+  const total = await pool.query(
+    `${MEM_CTE}
+     SELECT COUNT(*)::int AS n FROM mem
+     WHERE ($1::text IS NULL OR kind = $1)
+       AND ($2::text IS NULL OR project = $2)
+       AND ($3::text IS NULL OR agent = $3)
+       AND ($4::text IS NULL OR text ILIKE $4)`,
+    [kind || null, project || null, agent || null, q ? `%${q}%` : null]
+  );
+  return { items: res.rows, total: total.rows[0].n };
+}
+
+// valores distintos pra montar os filtros (tipo, projeto, agente) com contagem
+export async function memoryFacets() {
+  const kinds = await pool.query(`${MEM_CTE} SELECT kind, COUNT(*)::int AS n FROM mem GROUP BY kind ORDER BY n DESC`);
+  const projects = await pool.query(`${MEM_CTE} SELECT project, COUNT(*)::int AS n FROM mem WHERE project IS NOT NULL GROUP BY project ORDER BY n DESC`);
+  const agents = await pool.query(`${MEM_CTE} SELECT agent, COUNT(*)::int AS n FROM mem WHERE agent IS NOT NULL GROUP BY agent ORDER BY n DESC`);
+  return { kinds: kinds.rows, projects: projects.rows, agents: agents.rows };
+}
+
+// estatísticas do "cérebro" pro dashboard: total, por tipo e curva de
+// crescimento (total acumulado por dia nos últimos 14 dias).
+export async function memoryStats() {
+  const kinds = await pool.query(`${MEM_CTE} SELECT kind, COUNT(*)::int AS n FROM mem GROUP BY kind`);
+  const total = kinds.rows.reduce((s, r) => s + r.n, 0);
+  const series = await pool.query(`
+    WITH allmem AS (
+      SELECT created_at FROM documents
+      UNION ALL
+      SELECT created_at FROM messages
+    ), days AS (
+      SELECT generate_series((CURRENT_DATE - INTERVAL '13 days')::date, CURRENT_DATE, '1 day')::date AS d
+    )
+    SELECT to_char(d, 'YYYY-MM-DD') AS date,
+           (SELECT COUNT(*)::int FROM allmem WHERE created_at::date <= d) AS total
+    FROM days ORDER BY d
+  `);
+  return { total, by_kind: kinds.rows, series: series.rows };
+}
+
+// edita o texto de UM item (re-embeda fora, aqui só grava). store = 'documents' | 'messages'
+export async function updateMemoryText({ store, id, text, embedding, model }) {
+  const vec = embedding ? toVectorLiteral(embedding) : null;
+  if (store === 'documents') {
+    const res = await pool.query(
+      `UPDATE documents
+       SET chunk_text = $1, embedding = COALESCE($2::vector, embedding),
+           embedding_model = COALESCE($3, embedding_model), updated_at = NOW()
+       WHERE id = $4 RETURNING id`,
+      [text, vec, model, id]
+    );
+    return res.rowCount;
+  }
+  const res = await pool.query(
+    `UPDATE messages
+     SET content = $1, embedding = COALESCE($2::vector, embedding),
+         embedding_model = COALESCE($3, embedding_model)
+     WHERE id = $4 RETURNING id`,
+    [text, vec, model, id]
+  );
+  return res.rowCount;
+}
+
+export async function deleteMemoryRow({ store, id }) {
+  const table = store === 'documents' ? 'documents' : 'messages';
+  const res = await pool.query(`DELETE FROM ${table} WHERE id = $1`, [id]);
+  return res.rowCount;
+}
+
+// estado de consolidação de uma conversa (pra auto-consolidação)
+export async function getConsolidationState(conversationId) {
+  const res = await pool.query(
+    `SELECT c.consolidated_msgs,
+            (SELECT COUNT(*)::int FROM messages m WHERE m.conversation_id = c.id) AS total
+     FROM conversations c WHERE c.id = $1`,
+    [conversationId]
+  );
+  const row = res.rows[0] || { consolidated_msgs: 0, total: 0 };
+  return { consolidated: row.consolidated_msgs || 0, total: row.total || 0 };
+}
+
+export async function markConsolidated(conversationId, count) {
+  await pool.query(
+    'UPDATE conversations SET consolidated_at = NOW(), consolidated_msgs = $2 WHERE id = $1',
+    [conversationId, count]
+  );
+}
+
+// busca UM item de memória pelo uid ('doc:123' | 'msg:45') — usado pra abrir
+// direto na edição vindo do grafo.
+export async function getMemoryItem(uid) {
+  const res = await pool.query(
+    `${MEM_CTE}
+     SELECT uid, id, store, kind, project, ref, chunk_index, text, agent, model, created_at, updated_at
+     FROM mem WHERE uid = $1`,
+    [uid]
+  );
+  return res.rows[0] || null;
+}
+
+// --- GRAFO DO CÉREBRO ------------------------------------------------------
+// Nós = chunks da base (conhecimento + fatos + notas) e, opcionalmente, as
+// mensagens cruas das conversas. Arestas = similaridade semântica: pra cada
+// nó, seus vizinhos mais próximos (mesmo modelo de embedding) acima de um
+// limiar de cosseno. É o que dá o aspecto "teia de neurônios".
+function docLabel(d) {
+  const base = String(d.source_path || '').split('/').pop();
+  if (base && base !== 'undefined') return base.replace(/\.(md|txt|pdf|json)$/i, '');
+  return String(d.text || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+
+export async function memoryGraph({ project, limit = 200, neighbors = 4, threshold = 0.72, includeMessages = false, msgLimit = 150 } = {}) {
+  const docRes = await pool.query(
+    `SELECT 'doc:' || id AS uid, id, 'documents' AS store, project, source_path,
+            chunk_text AS text, embedding_model AS model,
+            COALESCE(NULLIF(metadata->>'by',''), NULLIF(metadata->>'agent','')) AS agent,
+            CASE project
+              WHEN 'memoria-consolidada' THEN 'fato'
+              WHEN 'memoria-agentes'     THEN 'nota'
+              ELSE 'documento'
+            END AS kind,
+            created_at
+     FROM documents
+     WHERE embedding IS NOT NULL
+       AND ($1::text IS NULL OR project = $1)
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [project || null, limit]
+  );
+  const nodes = docRes.rows.map((r) => ({ ...r, label: docLabel(r) }));
+
+  // mensagens só entram quando não há filtro por projeto (elas não têm projeto)
+  const withMsgs = includeMessages && !project;
+  if (withMsgs) {
+    const msgRes = await pool.query(
+      `SELECT 'msg:' || id AS uid, id, 'messages' AS store, NULL AS project, NULL AS source_path,
+              content AS text, embedding_model AS model,
+              COALESCE(agent, CASE WHEN role = 'user' THEN 'Usuário' ELSE 'Equipe' END) AS agent,
+              'mensagem' AS kind, conversation_id, created_at
+       FROM messages
+       WHERE embedding IS NOT NULL
+       ORDER BY created_at DESC
+       LIMIT $1`,
+      [msgLimit]
+    );
+    for (const r of msgRes.rows) nodes.push({ ...r, label: `conversa #${r.conversation_id}` });
+  }
+  if (!nodes.length) return { nodes: [], links: [] };
+
+  const docIds = docRes.rows.map((r) => r.id);
+  const msgIds = withMsgs ? nodes.filter((n) => n.store === 'messages').map((n) => n.id) : [];
+  const edgesRes = await pool.query(
+    `WITH sel AS (
+       SELECT 'doc:' || id AS uid, embedding, embedding_model FROM documents WHERE id = ANY($1::bigint[])
+       UNION ALL
+       SELECT 'msg:' || id AS uid, embedding, embedding_model FROM messages WHERE id = ANY($2::bigint[]) AND embedding IS NOT NULL
+     )
+     SELECT a.uid AS source, b.uid AS target, 1 - (a.embedding <=> b.embedding) AS sim
+     FROM sel a
+     JOIN LATERAL (
+       SELECT s.uid, s.embedding FROM sel s
+       WHERE s.uid <> a.uid AND s.embedding_model = a.embedding_model
+       ORDER BY a.embedding <=> s.embedding
+       LIMIT $3
+     ) b ON true
+     WHERE 1 - (a.embedding <=> b.embedding) >= $4`,
+    [docIds, msgIds, neighbors, threshold]
+  );
+
+  // dedup a-b / b-a (fica a maior similaridade)
+  const seen = new Map();
+  for (const e of edgesRes.rows) {
+    const sim = Number(e.sim);
+    const key = e.source < e.target ? `${e.source}|${e.target}` : `${e.target}|${e.source}`;
+    if (!seen.has(key) || seen.get(key).sim < sim) seen.set(key, { source: e.source, target: e.target, sim });
+  }
+  return { nodes, links: [...seen.values()] };
 }

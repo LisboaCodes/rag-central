@@ -83,6 +83,37 @@ export const api = {
       body: JSON.stringify({ project, source_path: sourcePath, mode })
     }),
 
+  memory: {
+    list: ({ kind, project, agent, q, limit, offset } = {}) => {
+      const p = new URLSearchParams();
+      if (kind) p.set('kind', kind);
+      if (project) p.set('project', project);
+      if (agent) p.set('agent', agent);
+      if (q) p.set('q', q);
+      if (limit) p.set('limit', limit);
+      if (offset) p.set('offset', offset);
+      const qs = p.toString();
+      return request(`/memory${qs ? `?${qs}` : ''}`);
+    },
+    facets: () => request('/memory/facets'),
+    stats: () => request('/memory/stats'),
+    get: (uid) => request(`/memory/${encodeURIComponent(uid)}`),
+    graph: ({ project, limit, neighbors, threshold, hubs, messages } = {}) => {
+      const p = new URLSearchParams();
+      if (project) p.set('project', project);
+      if (limit) p.set('limit', limit);
+      if (neighbors) p.set('neighbors', neighbors);
+      if (threshold) p.set('threshold', threshold);
+      if (hubs === false) p.set('hubs', 'false');
+      if (messages === true) p.set('messages', 'true');
+      const qs = p.toString();
+      return request(`/memory/graph${qs ? `?${qs}` : ''}`);
+    },
+    add: (body) => request('/memory', { method: 'POST', body: JSON.stringify(body) }),
+    update: (uid, text) => request(`/memory/${encodeURIComponent(uid)}`, { method: 'PATCH', body: JSON.stringify({ text }) }),
+    remove: (uid) => request(`/memory/${encodeURIComponent(uid)}`, { method: 'DELETE' })
+  },
+
   logs: ({ level, service, limit } = {}) => {
     const params = new URLSearchParams();
     if (level) params.set('level', level);

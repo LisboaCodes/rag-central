@@ -3,6 +3,8 @@ import Layout from './components/Layout.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Ingest from './pages/Ingest.jsx';
 import Sources from './pages/Sources.jsx';
+import Memoria from './pages/Memoria.jsx';
+import Cerebro from './pages/Cerebro.jsx';
 import Search from './pages/Search.jsx';
 import Agents from './pages/Agents.jsx';
 import Office from './pages/Office.jsx';
@@ -19,6 +21,8 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/ingest" element={<Ingest />} />
         <Route path="/sources" element={<Sources />} />
+        <Route path="/memoria" element={<Memoria />} />
+        <Route path="/cerebro" element={<Cerebro />} />
         <Route path="/search" element={<Search />} />
         <Route path="/agents" element={<Agents />} />
         <Route path="/office" element={<Office />} />
