@@ -41,20 +41,28 @@ function Box({ args, position, color, opacity, ...p }) {
   );
 }
 
-// ---- personagem voxel -----------------------------------------------------
-function VoxelCharacter({ color }) {
+// ---- personagem voxel (pernas/braços com pivô pra animar o caminhar) ------
+function VoxelCharacter({ color, legL, legR, armL, armR }) {
   return (
     <group>
-      {/* pernas */}
-      <Box args={[0.22, 0.5, 0.28]} position={[-0.14, 0.25, 0]} color="#2b3344" />
-      <Box args={[0.22, 0.5, 0.28]} position={[0.14, 0.25, 0]} color="#2b3344" />
+      {/* pernas — group com pivô no quadril (y=0.5) pra balançar */}
+      <group ref={legL} position={[-0.14, 0.5, 0]}>
+        <Box args={[0.22, 0.5, 0.28]} position={[0, -0.25, 0]} color="#2b3344" />
+      </group>
+      <group ref={legR} position={[0.14, 0.5, 0]}>
+        <Box args={[0.22, 0.5, 0.28]} position={[0, -0.25, 0]} color="#2b3344" />
+      </group>
       {/* tronco (cor do agente) */}
       <RoundedBox args={[0.62, 0.66, 0.36]} radius={0.06} smoothness={3} position={[0, 0.83, 0]} castShadow receiveShadow>
         <meshStandardMaterial color={color} roughness={0.8} />
       </RoundedBox>
-      {/* braços */}
-      <Box args={[0.16, 0.55, 0.22]} position={[-0.4, 0.85, 0]} color={color} />
-      <Box args={[0.16, 0.55, 0.22]} position={[0.4, 0.85, 0]} color={color} />
+      {/* braços — pivô no ombro (y=1.1) */}
+      <group ref={armL} position={[-0.4, 1.1, 0]}>
+        <Box args={[0.16, 0.55, 0.22]} position={[0, -0.25, 0]} color={color} />
+      </group>
+      <group ref={armR} position={[0.4, 1.1, 0]}>
+        <Box args={[0.16, 0.55, 0.22]} position={[0, -0.25, 0]} color={color} />
+      </group>
       {/* pescoço */}
       <Box args={[0.18, 0.1, 0.18]} position={[0, 1.2, 0]} color={C.skin} />
       {/* cabeça */}
@@ -63,7 +71,7 @@ function VoxelCharacter({ color }) {
       </RoundedBox>
       {/* cabelo */}
       <Box args={[0.5, 0.14, 0.48]} position={[0, 1.7, 0]} color="#2a2118" />
-      {/* olhos */}
+      {/* olhos (frente = +z) */}
       <Box args={[0.07, 0.07, 0.02]} position={[-0.1, 1.5, 0.23]} color="#1b1b1b" />
       <Box args={[0.07, 0.07, 0.02]} position={[0.1, 1.5, 0.23]} color="#1b1b1b" />
     </group>
@@ -173,26 +181,70 @@ function Furniture() {
   );
 }
 
-// ---- agente no 3D ---------------------------------------------------------
-function Agent({ a, position, face, active, selected, onSelect }) {
+// área onde os agentes circulam (evita paredes e a sala de reunião do fundo)
+const WALK = { minX: -8, maxX: 8, minZ: -1.5, maxZ: 6 };
+const rand = (a, b) => a + Math.random() * (b - a);
+const randTarget = () => ({ x: rand(WALK.minX, WALK.maxX), z: rand(WALK.minZ, WALK.maxZ) });
+
+// ---- agente no 3D (anda sozinho pelo escritório) --------------------------
+function Agent({ a, start, active, selected, onSelect }) {
   const g = useRef();
-  const phase = useMemo(() => Math.random() * Math.PI * 2, []);
-  useFrame((state) => {
-    if (!g.current) return;
-    const t = state.clock.elapsedTime;
-    g.current.position.y = position[1] + Math.sin(t * 1.8 + phase) * 0.05;
+  const legL = useRef(), legR = useRef(), armL = useRef(), armR = useRef();
+  const st = useRef({
+    x: start[0], z: start[2], tx: start[0], tz: start[2],
+    pauseUntil: 1 + Math.random() * 3, speed: 0.9 + Math.random() * 0.7,
+    face: Math.PI, phase: Math.random() * 10
   });
+
+  useFrame((state, delta) => {
+    const s = st.current;
+    const t = state.clock.elapsedTime;
+    const dt = Math.min(delta, 0.05);
+    let moving = false;
+
+    if (t >= s.pauseUntil) {
+      const dx = s.tx - s.x, dz = s.tz - s.z;
+      const d = Math.hypot(dx, dz);
+      if (d < 0.15) {
+        // chegou ao destino → pausa e sorteia o próximo
+        s.pauseUntil = t + 1 + Math.random() * 4;
+        const nt = randTarget(); s.tx = nt.x; s.tz = nt.z;
+      } else {
+        const step = Math.min(d, s.speed * dt);
+        s.x += (dx / d) * step; s.z += (dz / d) * step;
+        s.face = Math.atan2(dx, dz);
+        moving = true;
+      }
+    }
+
+    if (g.current) {
+      g.current.position.x = s.x; g.current.position.z = s.z;
+      g.current.position.y = moving ? Math.abs(Math.sin(t * 9)) * 0.05 : Math.sin(t * 1.8 + s.phase) * 0.04;
+      // rotaciona suavemente até a direção do movimento
+      let diff = s.face - g.current.rotation.y;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      g.current.rotation.y += diff * Math.min(1, dt * 10);
+    }
+
+    // balanço de pernas/braços ao caminhar
+    const swing = moving ? Math.sin(t * 9) * 0.5 : 0;
+    if (legL.current) legL.current.rotation.x = swing;
+    if (legR.current) legR.current.rotation.x = -swing;
+    if (armL.current) armL.current.rotation.x = -swing * 0.8;
+    if (armR.current) armR.current.rotation.x = swing * 0.8;
+  });
+
   const color = hexOf(a.color);
   return (
     <group
       ref={g}
-      position={position}
-      rotation={[0, face ?? 0, 0]}
+      position={start}
       onClick={(e) => { e.stopPropagation(); onSelect(a); }}
       onPointerOver={(e) => { e.stopPropagation(); document.body.style.cursor = 'pointer'; }}
       onPointerOut={() => { document.body.style.cursor = 'auto'; }}
     >
-      <VoxelCharacter color={color} />
+      <VoxelCharacter color={color} legL={legL} legR={legR} armL={armL} armR={armR} />
 
       {/* anel de seleção */}
       {selected && (
@@ -255,9 +307,9 @@ function Scene({ agents, status, selectedKey, onSelect }) {
       {agents.map((a, i) => {
         const act = status?.activity?.agents?.[a.key];
         const active = act?.last_query_at ? (now - new Date(act.last_query_at).getTime() < 60000) : false;
-        const s = slots[i] || { pos: [0, 0, 0], face: Math.PI };
+        const s = slots[i] || { pos: [0, 0, 0] };
         return (
-          <Agent key={a.key} a={a} position={s.pos} face={s.face}
+          <Agent key={a.key} a={a} start={s.pos}
             active={active} selected={selectedKey === a.key} onSelect={onSelect} />
         );
       })}
