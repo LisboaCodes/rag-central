@@ -23,6 +23,16 @@ export function logEvent(level, service, message) {
     message
   });
   if (events.length > MAX_EVENTS) events.pop();
+
+  // notifica erros no WhatsApp (best-effort, dedup por mensagem, cooldown 10min).
+  // import dinâmico evita ciclo activity↔notify; notify não loga (sem recursão).
+  if (level === 'ERROR') {
+    import('./notify.js')
+      .then((m) => m.notify(`🛑 *Erro* (${service})\n${message}`.slice(0, 500), {
+        flag: 'NOTIFY_ERRORS', key: `err:${service}:${message}`.slice(0, 140), cooldown: 10 * 60 * 1000
+      }))
+      .catch(() => {});
+  }
 }
 
 export function recordOutcome(ok) {

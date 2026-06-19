@@ -5,6 +5,7 @@ import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import { chunkText } from '../services/chunker.js';
 import { getSettings } from '../services/settings.js';
 import { ingestText } from '../services/ingest.js';
+import { notify } from '../services/notify.js';
 
 const router = Router();
 
@@ -118,6 +119,10 @@ router.post('/', upload.single('file'), async (req, res, next) => {
     if (!result.chunks) {
       return res.status(400).json({ error: 'Nenhum chunk gerado — texto vazio?' });
     }
+
+    notify(`📥 *Ingestão concluída*\n${sourcePath} — ${result.chunks} chunks (projeto ${project})`, {
+      flag: 'NOTIFY_INGEST', key: `ingest:${project}:${sourcePath}`, cooldown: 60 * 1000
+    });
 
     res.status(201).json({
       project,

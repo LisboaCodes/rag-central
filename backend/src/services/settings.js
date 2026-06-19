@@ -43,6 +43,12 @@ function defaults() {
     WHATSAPP_API_KEY: process.env.WHATSAPP_API_KEY || '',
     WHATSAPP_INSTANCE: process.env.WHATSAPP_INSTANCE || '',
     WHATSAPP_AGENT: process.env.WHATSAPP_AGENT || 'DARLENE',
+    // Notificações do sistema via WhatsApp (número que RECEBE os alertas)
+    WHATSAPP_NOTIFY_NUMBER: process.env.WHATSAPP_NOTIFY_NUMBER || '',
+    NOTIFY_ERRORS: process.env.NOTIFY_ERRORS === 'true',
+    NOTIFY_INGEST: process.env.NOTIFY_INGEST === 'true',
+    NOTIFY_DAILY: process.env.NOTIFY_DAILY === 'true',
+    NOTIFY_NEWS: process.env.NOTIFY_NEWS === 'true',
     EMBEDDING_MODE: process.env.EMBEDDING_MODE || 'auto',
     EMBEDDING_DIMS: parseInt(process.env.EMBEDDING_DIMS || '1536', 10),
     CHUNK_SIZE: parseInt(process.env.CHUNK_SIZE || '512', 10),
@@ -80,6 +86,10 @@ export function updateSettings(patch) {
   if (clean.WHATSAPP_API_URL) clean.WHATSAPP_API_URL = String(clean.WHATSAPP_API_URL).replace(/\/+$/, '');
   if (clean.WHATSAPP_ENABLED !== undefined) clean.WHATSAPP_ENABLED = clean.WHATSAPP_ENABLED === true || clean.WHATSAPP_ENABLED === 'true';
   if (clean.WHATSAPP_AGENT) clean.WHATSAPP_AGENT = String(clean.WHATSAPP_AGENT).toUpperCase();
+  if (clean.WHATSAPP_NOTIFY_NUMBER) clean.WHATSAPP_NOTIFY_NUMBER = String(clean.WHATSAPP_NOTIFY_NUMBER).replace(/\D/g, '');
+  for (const k of ['NOTIFY_ERRORS', 'NOTIFY_INGEST', 'NOTIFY_DAILY', 'NOTIFY_NEWS']) {
+    if (clean[k] !== undefined) clean[k] = clean[k] === true || clean[k] === 'true';
+  }
   if (clean.CHAT_PROVIDER && !['ollama', 'openai'].includes(clean.CHAT_PROVIDER)) {
     throw new Error(`CHAT_PROVIDER inválido: ${clean.CHAT_PROVIDER} (use ollama | openai)`);
   }

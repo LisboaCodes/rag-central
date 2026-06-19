@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Database, Cloud, Cpu, Braces, Plug, MessagesSquare, GitBranch, Smartphone, Newspaper } from 'lucide-react';
-import { api } from '../lib/api.js';
+import { api, API_BASE } from '../lib/api.js';
 import { useAgents } from '../lib/AgentsContext.jsx';
 
 // Ações extras do WhatsApp (status, QR, teste, setup do webhook)
@@ -18,7 +18,11 @@ function WhatsAppExtras() {
     finally { setBusy(''); }
   };
 
-  const webhookUrl = `${window.location.origin.replace(/:\d+$/, ':3000')}/whatsapp/webhook`;
+  // webhook PRECISA apontar pro backend (não pro frontend). Em prod o
+  // VITE_API_URL é absoluto (ex: https://rag.creativenext.dev); em dev cai
+  // no localhost:3000.
+  const backendBase = API_BASE.startsWith('http') ? API_BASE : window.location.origin.replace(/:\d+$/, ':3000');
+  const webhookUrl = `${backendBase}/whatsapp/webhook`;
 
   return (
     <div className="space-y-3 border-t border-edge pt-4">
@@ -355,7 +359,7 @@ export default function Settings() {
           icon={Smartphone}
           title="WhatsApp (evolution-api)"
           saved={savedSection === 'whatsapp'}
-          onSave={() => save('whatsapp', ['WHATSAPP_ENABLED', 'WHATSAPP_API_URL', 'WHATSAPP_API_KEY', 'WHATSAPP_INSTANCE', 'WHATSAPP_AGENT'])}
+          onSave={() => save('whatsapp', ['WHATSAPP_ENABLED', 'WHATSAPP_API_URL', 'WHATSAPP_API_KEY', 'WHATSAPP_INSTANCE', 'WHATSAPP_AGENT', 'WHATSAPP_NOTIFY_NUMBER', 'NOTIFY_ERRORS', 'NOTIFY_INGEST', 'NOTIFY_DAILY', 'NOTIFY_NEWS'])}
         >
           <div className="flex items-center justify-between rounded-lg bg-background px-3 py-2">
             <span className="text-sm">Ativar atendimento por WhatsApp</span>
@@ -377,6 +381,35 @@ export default function Settings() {
               {agents.map((a) => <option key={a.key} value={a.key}>{a.name} — {a.role}</option>)}
             </select>
           </div>
+          {/* notificações do sistema */}
+          <div className="space-y-2 border-t border-edge pt-4">
+            <p className="text-xs font-semibold text-body/90">🔔 Notificações do sistema</p>
+            <Input
+              label="Número que RECEBE as notificações (com DDI, ex: 5511999999999)"
+              value={form.WHATSAPP_NOTIFY_NUMBER || ''}
+              onChange={(e) => set('WHATSAPP_NOTIFY_NUMBER', e.target.value)}
+              placeholder="55..."
+              hint="Seu número pessoal — onde chegam os alertas (diferente da linha dos agentes)."
+            />
+            {[
+              ['NOTIFY_ERRORS', 'Erros do sistema'],
+              ['NOTIFY_INGEST', 'Ingestões concluídas'],
+              ['NOTIFY_DAILY', 'Resumo diário do cérebro (~9h)'],
+              ['NOTIFY_NEWS', 'Novidades de IA (RSS)']
+            ].map(([key, label]) => (
+              <div key={key} className="flex items-center justify-between rounded-lg bg-background px-3 py-2">
+                <span className="text-sm">{label}</span>
+                <button
+                  type="button"
+                  onClick={() => set(key, !form[key])}
+                  className={`relative h-6 w-11 rounded-full transition-colors ${form[key] ? 'bg-emerald-600' : 'bg-slate-600'}`}
+                >
+                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${form[key] ? 'left-[22px]' : 'left-0.5'}`} />
+                </button>
+              </div>
+            ))}
+          </div>
+
           <WhatsAppExtras />
         </Section>
 

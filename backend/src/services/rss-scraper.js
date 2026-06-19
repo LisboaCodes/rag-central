@@ -2,6 +2,7 @@ import Parser from 'rss-parser';
 import { pool } from './db.js';
 import { ingestText } from './ingest.js';
 import { logEvent } from './activity.js';
+import { notify } from './notify.js';
 
 // Scraper de RSS — alimenta a base de conhecimento automaticamente com as
 // últimas novidades de IA/tech. Reutiliza ingestText (mesmo pipeline da rota
@@ -43,6 +44,7 @@ async function syncFeed(feed) {
   const parsed = await parser.parseURL(feed.url);
   const items = (parsed.items || []).slice(0, PER_SOURCE);
   let ingested = 0;
+  const titles = [];
   for (const it of items) {
     const url = it.link || it.guid;
     if (!url) continue;
@@ -66,9 +68,10 @@ async function syncFeed(feed) {
       [url, title, feed.name]
     );
     ingested++;
+    titles.push(`${feed.name}: ${title.slice(0, 70)}`);
     logEvent('INFO', 'rss', `ingerido [${feed.name}] ${title.slice(0, 70)}`);
   }
-  return ingested;
+  return { ingested, titles };
 }
 
 // Roda o scraper em todas as fontes. Erros por fonte são isolados.
@@ -76,13 +79,15 @@ export async function syncRss() {
   if (state.running) return state.lastResult || { running: true };
   state.running = true;
   const result = { sources: {}, total: 0, errors: [], startedAt: new Date().toISOString() };
+  const newTitles = [];
   try {
     await ensureTable();
     for (const feed of FEEDS) {
       try {
-        const n = await syncFeed(feed);
-        result.sources[feed.name] = n;
-        result.total += n;
+        const { ingested, titles } = await syncFeed(feed);
+        result.sources[feed.name] = ingested;
+        result.total += ingested;
+        newTitles.push(...titles);
       } catch (err) {
         result.sources[feed.name] = `erro: ${err.message}`;
         result.errors.push({ source: feed.name, error: err.message });
@@ -95,6 +100,11 @@ export async function syncRss() {
     state.lastResult = result;
   }
   logEvent('INFO', 'rss', `sync concluída: ${result.total} artigos novos (${result.errors.length} fontes com erro)`);
+  if (newTitles.length) {
+    const list = newTitles.slice(0, 8).map((t) => `• ${t}`).join('\n');
+    const extra = newTitles.length > 8 ? `\n… +${newTitles.length - 8}` : '';
+    notify(`📰 *Novidades de IA* (${newTitles.length})\n${list}${extra}`, { flag: 'NOTIFY_NEWS', key: 'rss-batch', cooldown: 60 * 1000 });
+  }
   return result;
 }
 
