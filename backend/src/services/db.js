@@ -102,6 +102,24 @@ export async function initSchema() {
   await pool.query('ALTER TABLE agents ADD COLUMN IF NOT EXISTS chat_api_base TEXT');
   await pool.query('ALTER TABLE agents ADD COLUMN IF NOT EXISTS chat_api_key TEXT');
   await pool.query('ALTER TABLE agents ADD COLUMN IF NOT EXISTS chat_model TEXT');
+
+  // --- tarefas agendadas (CRON) -----------------------------------------
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cron_jobs (
+      id          BIGSERIAL PRIMARY KEY,
+      name        TEXT NOT NULL,
+      schedule    TEXT NOT NULL,            -- expressão cron (5 campos)
+      action      TEXT NOT NULL,            -- agent_prompt | rss_sync | brain_digest | consolidate
+      config      JSONB DEFAULT '{}',
+      enabled     BOOLEAN DEFAULT TRUE,
+      last_run_at TIMESTAMPTZ,
+      last_status TEXT,                      -- ok | error
+      last_result TEXT,
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   await seedAgents();
 }
 
@@ -543,6 +561,56 @@ export async function markConsolidated(conversationId, count) {
   await pool.query(
     'UPDATE conversations SET consolidated_at = NOW(), consolidated_msgs = $2 WHERE id = $1',
     [conversationId, count]
+  );
+}
+
+// --- tarefas agendadas (CRON) ----------------------------------------------
+export async function listCronJobs() {
+  const { rows } = await pool.query('SELECT * FROM cron_jobs ORDER BY created_at DESC');
+  return rows;
+}
+
+export async function getCronJob(id) {
+  const { rows } = await pool.query('SELECT * FROM cron_jobs WHERE id = $1', [id]);
+  return rows[0] || null;
+}
+
+export async function createCronJob({ name, schedule, action, config = {}, enabled = true }) {
+  const { rows } = await pool.query(
+    `INSERT INTO cron_jobs (name, schedule, action, config, enabled)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [name, schedule, action, JSON.stringify(config), enabled]
+  );
+  return rows[0];
+}
+
+export async function updateCronJob(id, patch) {
+  const fields = ['name', 'schedule', 'action', 'config', 'enabled'];
+  const sets = [], vals = [];
+  for (const f of fields) {
+    if (patch[f] !== undefined) {
+      vals.push(f === 'config' ? JSON.stringify(patch[f]) : patch[f]);
+      sets.push(`${f} = $${vals.length}`);
+    }
+  }
+  if (!sets.length) return getCronJob(id);
+  vals.push(id);
+  const { rows } = await pool.query(
+    `UPDATE cron_jobs SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length} RETURNING *`,
+    vals
+  );
+  return rows[0] || null;
+}
+
+export async function deleteCronJob(id) {
+  const r = await pool.query('DELETE FROM cron_jobs WHERE id = $1', [id]);
+  return r.rowCount;
+}
+
+export async function markCronRun(id, status, result) {
+  await pool.query(
+    'UPDATE cron_jobs SET last_run_at = NOW(), last_status = $2, last_result = $3 WHERE id = $1',
+    [id, status, String(result || '').slice(0, 1000)]
   );
 }
 

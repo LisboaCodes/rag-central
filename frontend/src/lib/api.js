@@ -114,6 +114,14 @@ export const api = {
     remove: (uid) => request(`/memory/${encodeURIComponent(uid)}`, { method: 'DELETE' })
   },
 
+  cron: {
+    list: () => request('/cron'),
+    create: (body) => request('/cron', { method: 'POST', body: JSON.stringify(body) }),
+    update: (id, body) => request(`/cron/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    remove: (id) => request(`/cron/${id}`, { method: 'DELETE' }),
+    run: (id) => request(`/cron/${id}/run`, { method: 'POST' })
+  },
+
   logs: ({ level, service, limit } = {}) => {
     const params = new URLSearchParams();
     if (level) params.set('level', level);

@@ -4,6 +4,7 @@ import cors from 'cors';
 import { initSchema } from './services/db.js';
 import { startRssSchedule } from './services/rss-scraper.js';
 import { startNotifySchedule } from './services/notify.js';
+import { startCronSchedule } from './services/cron.js';
 import queryRouter from './routes/query.js';
 import chatRouter from './routes/chat.js';
 import conversationsRouter from './routes/conversations.js';
@@ -15,6 +16,7 @@ import modelsRouter from './routes/models.js';
 import ingestRouter from './routes/ingest.js';
 import sourcesRouter from './routes/sources.js';
 import memoryRouter from './routes/memory.js';
+import cronRouter from './routes/cron.js';
 import statusRouter from './routes/status.js';
 import configRouter from './routes/config.js';
 import logsRouter from './routes/logs.js';
@@ -36,6 +38,7 @@ app.use('/models', modelsRouter);
 app.use('/ingest', ingestRouter);
 app.use('/sources', sourcesRouter);
 app.use('/memory', memoryRouter);
+app.use('/cron', cronRouter);
 app.use('/status', statusRouter);
 app.use('/config', configRouter);
 app.use('/logs', logsRouter);
@@ -75,4 +78,6 @@ app.listen(port, '0.0.0.0', () => {
   startRssSchedule();
   // notificações por WhatsApp (resumo diário do cérebro)
   startNotifySchedule();
+  // tarefas agendadas (CRON) — carrega do banco e agenda
+  startCronSchedule();
 });

@@ -2,7 +2,7 @@ import { completeChat } from './chat.js';
 import {
   getConversation, insertChunks, deleteSource,
   getConsolidationState, markConsolidated,
-  updateMemoryText, deleteMemoryRow
+  updateMemoryText, deleteMemoryRow, listConversations
 } from './db.js';
 import { embed, embedBatched } from './embedding.js';
 import { chunkText } from './chunker.js';
@@ -71,6 +71,24 @@ export async function maybeAutoConsolidate(conversationId) {
     logEvent('WARN', 'memory', `auto-consolidação falhou (conv ${conversationId}): ${err.message}`);
     return false;
   }
+}
+
+// Consolida TODAS as conversas que têm mensagens novas desde a última
+// consolidação. Usado pela tarefa agendada "consolidar memória".
+export async function consolidateAll() {
+  const convs = await listConversations();
+  let done = 0;
+  for (const c of convs) {
+    try {
+      const { consolidated, total } = await getConsolidationState(c.id);
+      if (total > 0 && total > consolidated) {
+        await consolidateConversation(c.id);
+        await markConsolidated(c.id, total);
+        done++;
+      }
+    } catch { /* pula conversa problemática */ }
+  }
+  return done;
 }
 
 // uid: 'doc:123' → { store: 'documents', id: 123 } | 'msg:45' → messages

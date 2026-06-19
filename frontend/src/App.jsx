@@ -6,6 +6,7 @@ import Ingest from './pages/Ingest.jsx';
 import Sources from './pages/Sources.jsx';
 import Memoria from './pages/Memoria.jsx';
 import Cerebro from './pages/Cerebro.jsx';
+import Agendamentos from './pages/Agendamentos.jsx';
 import Search from './pages/Search.jsx';
 import Agents from './pages/Agents.jsx';
 import GitHubPage from './pages/GitHub.jsx';
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/sources" element={<Sources />} />
         <Route path="/memoria" element={<Memoria />} />
         <Route path="/cerebro" element={<Cerebro />} />
+        <Route path="/agendamentos" element={<Agendamentos />} />
         <Route path="/search" element={<Search />} />
         <Route path="/agents" element={<Agents />} />
         <Route path="/office" element={<Suspense fallback={<Loading />}><Office /></Suspense>} />

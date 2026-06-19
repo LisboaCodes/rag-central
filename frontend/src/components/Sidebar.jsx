@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Upload, FolderOpen, Search, Bot, Building2, GitBranch, MessagesSquare, Newspaper, ScrollText, Settings, BrainCircuit, Brain, Network
+  LayoutDashboard, Upload, FolderOpen, Search, Bot, Building2, GitBranch, MessagesSquare, Newspaper, ScrollText, Settings, BrainCircuit, Brain, Network, CalendarClock
 } from 'lucide-react';
 import { useStatus } from '../lib/StatusContext.jsx';
 
@@ -13,6 +13,7 @@ export const NAV = [
   { to: '/conversas', label: 'Conversas', icon: MessagesSquare, title: 'Conversas & Memória', subtitle: 'Histórico de conversas que os agentes relembram' },
   { to: '/memoria', label: 'Memória', icon: Brain, title: 'Central de Memória', subtitle: 'Tudo que os agentes aprenderam — veja, edite e exclua' },
   { to: '/cerebro', label: 'Cérebro', icon: Network, title: 'Cérebro Visual', subtitle: 'Grafo do conhecimento — como o cérebro está conectado e evoluindo' },
+  { to: '/agendamentos', label: 'Agendamentos', icon: CalendarClock, title: 'Agendamentos (CRON)', subtitle: 'Tarefas que rodam sozinhas no horário definido' },
   { to: '/office', label: 'Escritório', icon: Building2, title: 'Escritório Virtual', subtitle: 'Seus agentes em um escritório 2D em tempo real' },
   { to: '/novidades', label: 'Novidades IA', icon: Newspaper, title: 'Novidades de IA', subtitle: 'Últimas do mundo de IA e APIs (via Perplexity)' },
   { to: '/github', label: 'GitHub', icon: GitBranch, title: 'GitHub', subtitle: 'Repositórios linkados — navegar, visualizar e commitar' },
