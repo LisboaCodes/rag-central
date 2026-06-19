@@ -173,10 +173,11 @@ function Editor({ initial, onClose, onSaved }) {
           {/* conexão de IA deste agente */}
           <div className="rounded-lg border border-edge bg-background/40 p-3 space-y-3">
             <Field label="Qual IA este agente usa?">
-              <div className="grid grid-cols-2 gap-1 rounded-lg bg-background p-1 sm:grid-cols-4">
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-background p-1">
                 {[
                   { v: 'default', l: 'Padrão' },
                   { v: 'openai', l: 'API própria' },
+                  { v: 'anthropic', l: 'Claude (API)' },
                   { v: 'ollama', l: 'Ollama' },
                   { v: 'claude-cli', l: 'Claude CLI' }
                 ].map((p) => (
@@ -192,6 +193,18 @@ function Editor({ initial, onClose, onSaved }) {
               <p className="text-[11px] text-muted">Usa o provedor global definido em <strong>Configurações → Chat dos Agentes</strong>.</p>
             )}
 
+            {form.chat_provider === 'anthropic' && (
+              <>
+                <Field label="Modelo Claude">
+                  <input value={form.chat_model || ''} onChange={(e) => { set('chat_model', e.target.value); set('model', e.target.value || 'Claude'); }}
+                    placeholder="sonnet / opus / haiku ou ID completo (vazio = padrão)" className="inp" />
+                </Field>
+                <p className="text-[11px] text-muted">
+                  Usa a <strong>API oficial da Anthropic</strong> com a chave global <code className="text-violet-400">ANTHROPIC_API_KEY</code> (env). Funciona em produção/Docker (não precisa do CLI).
+                </p>
+              </>
+            )}
+
             {form.chat_provider === 'claude-cli' && (
               <>
                 <Field label="Modelo (opcional)">
@@ -199,7 +212,7 @@ function Editor({ initial, onClose, onSaved }) {
                     placeholder="sonnet / opus / haiku (vazio = padrão do CLI)" className="inp" />
                 </Field>
                 <p className="text-[11px] text-muted">
-                  Usa o binário <code className="text-violet-400">claude</code> <strong>logado no host do backend</strong> (sem API key, usa sua assinatura). Requer <code>claude</code> instalado e <code>claude login</code> no servidor.
+                  Usa o binário <code className="text-violet-400">claude</code> <strong>logado no host</strong> (sem API key). Em produção/Docker não há binário — se a <code>ANTHROPIC_API_KEY</code> estiver setada, cai automaticamente na <strong>API da Anthropic</strong>.
                 </p>
               </>
             )}

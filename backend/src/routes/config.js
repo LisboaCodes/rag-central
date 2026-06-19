@@ -26,6 +26,9 @@ function masked(settings) {
   if (out.PERPLEXITY_API_KEY) {
     out.PERPLEXITY_API_KEY = `${KEY_MASK_PREFIX}${out.PERPLEXITY_API_KEY.slice(-4)}`;
   }
+  if (out.ANTHROPIC_API_KEY) {
+    out.ANTHROPIC_API_KEY = `${KEY_MASK_PREFIX}${out.ANTHROPIC_API_KEY.slice(-4)}`;
+  }
   return out;
 }
 
@@ -53,6 +56,9 @@ router.put('/', (req, res, next) => {
     }
     if (typeof patch.PERPLEXITY_API_KEY === 'string' && patch.PERPLEXITY_API_KEY.startsWith(KEY_MASK_PREFIX)) {
       delete patch.PERPLEXITY_API_KEY;
+    }
+    if (typeof patch.ANTHROPIC_API_KEY === 'string' && patch.ANTHROPIC_API_KEY.startsWith(KEY_MASK_PREFIX)) {
+      delete patch.ANTHROPIC_API_KEY;
     }
     const updated = updateSettings(patch);
     logEvent('INFO', 'config', `Configurações atualizadas: ${Object.keys(patch).join(', ') || 'nenhuma mudança'}`);

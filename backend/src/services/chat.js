@@ -1,5 +1,6 @@
 import axios from 'axios';
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { spawn } from 'child_process';
 import { getSettings } from './settings.js';
 import { embed } from './embedding.js';
@@ -75,8 +76,15 @@ const embedOne = async (text) => {
   catch { return { embedding: null, model: null }; }
 };
 
-// Gera UMA resposta de um agente dentro de uma conversa já existente.
-// O histórico recente (que inclui a última fala do usuário e respostas de
+// mapeia o modelo pra um ID válido da API Anthropic (aliases do CLI → ID; vazio → default)
+const ANTHROPIC_ALIASES = { sonnet: 'claude-sonnet-4-6', opus: 'claude-opus-4-8', haiku: 'claude-haiku-4-5-20251001' };
+function anthropicModel(model, s) {
+  const m = (model || '').trim();
+  if (!m) return s.ANTHROPIC_MODEL;
+  if (ANTHROPIC_ALIASES[m.toLowerCase()]) return ANTHROPIC_ALIASES[m.toLowerCase()];
+  return m; // já é um ID completo (ex: claude-sonnet-4-6)
+}
+
 // resolve o provedor/modelo efetivo de um agente (override próprio ou global)
 function providerFor(agent) {
   const s = getSettings();
@@ -87,7 +95,12 @@ function providerFor(agent) {
   if (p === 'ollama') {
     return { provider: 'ollama', ollamaUrl: agent.chat_api_base || s.OLLAMA_URL, ollamaModel: agent.chat_model || s.OLLAMA_CHAT_MODEL };
   }
+  if (p === 'anthropic') {
+    return { provider: 'anthropic', apiKey: s.ANTHROPIC_API_KEY, model: anthropicModel(agent.chat_model, s) };
+  }
   if (p === 'claude-cli') {
+    // em Docker/produção não há binário `claude` → se tiver ANTHROPIC_API_KEY, usa a API
+    if (s.ANTHROPIC_API_KEY) return { provider: 'anthropic', apiKey: s.ANTHROPIC_API_KEY, model: anthropicModel(agent.chat_model, s) };
     return { provider: 'claude-cli', bin: s.CLAUDE_CLI_BIN || 'claude', model: agent.chat_model || '' };
   }
   // default → usa o global das Configurações
@@ -143,6 +156,9 @@ async function generateReply({ agentKey, persona, prov, conversationId, latestTe
     ({ answer, model, toolsUsed } = onEvent
       ? await runWithToolsStream(prov, messages, ctx, onEvent, images)
       : await runWithTools(prov, messages, ctx, images));
+  } else if (prov.provider === 'anthropic') {
+    ({ answer, model } = await callAnthropic(prov, messages, ctx, onEvent));
+    toolsUsed = [];
   } else if (prov.provider === 'claude-cli') {
     ({ answer, model } = await callClaudeCli(prov, messages, ctx, onEvent));
     toolsUsed = [];
@@ -381,6 +397,53 @@ async function callOpenAICompatible(prov, messages) {
   const answer = res.choices?.[0]?.message?.content?.trim();
   if (!answer) throw new Error('Resposta vazia do provedor de chat');
   return { answer, model: `${prov.apiBase}/${prov.model}` };
+}
+
+// Converte as mensagens do RAG pro formato Anthropic: system separado, e
+// messages user/assistant alternando começando com user (mescla consecutivos).
+function toAnthropic(messages) {
+  const system = messages.find((m) => m.role === 'system')?.content || '';
+  const convo = [];
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+    const role = m.role === 'assistant' ? 'assistant' : 'user';
+    const content = typeof m.content === 'string'
+      ? m.content
+      : (m.content || []).map((c) => (c.type === 'text' ? c.text : '[imagem]')).join(' ');
+    if (convo.length && convo[convo.length - 1].role === role) convo[convo.length - 1].content += `\n${content}`;
+    else convo.push({ role, content });
+  }
+  while (convo.length && convo[0].role !== 'user') convo.shift(); // Anthropic exige começar com user
+  if (!convo.length) convo.push({ role: 'user', content: '(sem mensagem)' });
+  return { system, messages: convo };
+}
+
+// Claude via API oficial da Anthropic (@anthropic-ai/sdk). Suporta streaming.
+async function callAnthropic(prov, messages, ctx, onEvent) {
+  if (!prov.apiKey) throw new Error('ANTHROPIC_API_KEY não configurada (Configurações → Anthropic ou env no Coolify)');
+  const client = new Anthropic({ apiKey: prov.apiKey });
+  const { system, messages: msgs } = toAnthropic(messages);
+  const model = `anthropic/${prov.model}`;
+  try {
+    if (onEvent) {
+      let answer = '';
+      const stream = await client.messages.stream({ model: prov.model, max_tokens: 2048, system, messages: msgs });
+      for await (const ev of stream) {
+        if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+          answer += ev.delta.text;
+          onEvent({ type: 'token', agent: ctx.agent, delta: ev.delta.text });
+        }
+      }
+      if (!answer.trim()) throw new Error('Resposta vazia da Anthropic');
+      return { answer: answer.trim(), model };
+    }
+    const res = await client.messages.create({ model: prov.model, max_tokens: 2048, system, messages: msgs });
+    const answer = (res.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('').trim();
+    if (!answer) throw new Error('Resposta vazia da Anthropic');
+    return { answer, model };
+  } catch (err) {
+    throw new Error(`Falha na Anthropic (${prov.model}): ${err.message}`);
+  }
 }
 
 // Claude via CLI logado (binário `claude`). Não usa API key — usa a sessão

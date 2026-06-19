@@ -29,6 +29,9 @@ function defaults() {
     CHAT_MODEL: process.env.CHAT_MODEL || 'llama-3.3-70b-versatile',
     // binário do Claude CLI (para agentes no provedor "claude-cli")
     CLAUDE_CLI_BIN: process.env.CLAUDE_CLI_BIN || 'claude',
+    // Anthropic API (provedor "anthropic" — usa a API oficial, não o CLI)
+    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
+    ANTHROPIC_MODEL: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6',
     // GitHub: PAT para os agentes lerem/commitarem nos repos
     GITHUB_TOKEN: process.env.GITHUB_TOKEN || '',
     // Perplexity: pesquisa web + novidades de IA (preencher depois)
