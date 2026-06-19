@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 import Dashboard from './pages/Dashboard.jsx';
@@ -7,12 +8,19 @@ import Memoria from './pages/Memoria.jsx';
 import Cerebro from './pages/Cerebro.jsx';
 import Search from './pages/Search.jsx';
 import Agents from './pages/Agents.jsx';
-import Office from './pages/Office.jsx';
 import GitHubPage from './pages/GitHub.jsx';
 import Conversas from './pages/Conversas.jsx';
 import Novidades from './pages/Novidades.jsx';
 import Logs from './pages/Logs.jsx';
 import Settings from './pages/Settings.jsx';
+
+// Office é 3D (Three.js, pesado) — carrega só quando a rota é aberta,
+// mantendo o bundle principal leve.
+const Office = lazy(() => import('./pages/Office.jsx'));
+
+function Loading() {
+  return <p className="py-20 text-center text-sm text-muted">Carregando o escritório 3D…</p>;
+}
 
 export default function App() {
   return (
@@ -25,7 +33,7 @@ export default function App() {
         <Route path="/cerebro" element={<Cerebro />} />
         <Route path="/search" element={<Search />} />
         <Route path="/agents" element={<Agents />} />
-        <Route path="/office" element={<Office />} />
+        <Route path="/office" element={<Suspense fallback={<Loading />}><Office /></Suspense>} />
         <Route path="/github" element={<GitHubPage />} />
         <Route path="/conversas" element={<Conversas />} />
         <Route path="/novidades" element={<Novidades />} />
