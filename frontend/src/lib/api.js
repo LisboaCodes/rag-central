@@ -2,21 +2,61 @@
 // (no build) com a URL pública do backend, ex: https://rag-api.creativenext.dev
 export const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+// --- token de sessão (login) ----------------------------------------------
+const TOKEN_KEY = 'rag_token';
+export function getToken() { return localStorage.getItem(TOKEN_KEY) || ''; }
+export function setToken(t) { t ? localStorage.setItem(TOKEN_KEY, t) : localStorage.removeItem(TOKEN_KEY); }
+// avisa a app (AuthContext) quando a sessão cai (401)
+export function onUnauthorized(cb) { unauthorizedCb = cb; }
+let unauthorizedCb = null;
+
 async function request(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (opts.body && !(opts.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
   }
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    throw new Error(data?.error || `Erro HTTP ${res.status}`);
+    // 401 fora das próprias rotas de login = sessão expirou
+    if (res.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/verify')) {
+      setToken('');
+      if (unauthorizedCb) unauthorizedCb();
+    }
+    const err = new Error(data?.error || `Erro HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
 
 export const api = {
   status: () => request('/status'),
+
+  auth: {
+    config: () => request('/auth/config'),
+    login: (email) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email }) }),
+    verifyEmail: (email, code) => request('/auth/verify-email', { method: 'POST', body: JSON.stringify({ email, code }) }),
+    verify2fa: (email, code) => request('/auth/verify-2fa', { method: 'POST', body: JSON.stringify({ email, code }) }),
+    me: () => request('/auth/me')
+  },
+
+  vault: {
+    status: () => request('/vault/status'),
+    setup: (password) => request('/vault/setup', { method: 'POST', body: JSON.stringify({ password }) }),
+    unlock: (password) => request('/vault/unlock', { method: 'POST', body: JSON.stringify({ password }) }),
+    lock: () => request('/vault/lock', { method: 'POST' }),
+    accounts: (reveal) => request(`/vault/accounts${reveal ? '?reveal=1' : ''}`),
+    addAccount: (body) => request('/vault/accounts', { method: 'POST', body: JSON.stringify(body) }),
+    updateAccount: (id, body) => request(`/vault/accounts/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    removeAccount: (id) => request(`/vault/accounts/${id}`, { method: 'DELETE' }),
+    services: (reveal) => request(`/vault/services${reveal ? '?reveal=1' : ''}`),
+    addService: (body) => request('/vault/services', { method: 'POST', body: JSON.stringify(body) }),
+    updateService: (id, body) => request(`/vault/services/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+    removeService: (id) => request(`/vault/services/${id}`, { method: 'DELETE' })
+  },
 
   query: (body) => request('/query', { method: 'POST', body: JSON.stringify(body) }),
 

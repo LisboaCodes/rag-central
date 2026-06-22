@@ -1,8 +1,9 @@
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Upload, FolderOpen, Search, Bot, Building2, GitBranch, MessagesSquare, Newspaper, ScrollText, Settings, BrainCircuit, Brain, Network, CalendarClock
+  LayoutDashboard, Upload, FolderOpen, Search, Bot, Building2, GitBranch, MessagesSquare, Newspaper, ScrollText, Settings, BrainCircuit, Brain, Network, CalendarClock, Vault, LogOut
 } from 'lucide-react';
 import { useStatus } from '../lib/StatusContext.jsx';
+import { useAuth } from '../lib/AuthContext.jsx';
 
 export const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, title: 'Dashboard', subtitle: 'Visão geral do sistema' },
@@ -13,6 +14,7 @@ export const NAV = [
   { to: '/conversas', label: 'Conversas', icon: MessagesSquare, title: 'Conversas & Memória', subtitle: 'Histórico de conversas que os agentes relembram' },
   { to: '/memoria', label: 'Memória', icon: Brain, title: 'Central de Memória', subtitle: 'Tudo que os agentes aprenderam — veja, edite e exclua' },
   { to: '/cerebro', label: 'Cérebro', icon: Network, title: 'Cérebro Visual', subtitle: 'Grafo do conhecimento — como o cérebro está conectado e evoluindo' },
+  { to: '/cofre', label: 'Cofre', icon: Vault, title: 'Cofre', subtitle: 'E-mails, senhas e serviços — cifrados pela sua senha-mestra' },
   { to: '/agendamentos', label: 'Agendamentos', icon: CalendarClock, title: 'Agendamentos (CRON)', subtitle: 'Tarefas que rodam sozinhas no horário definido' },
   { to: '/office', label: 'Escritório', icon: Building2, title: 'Escritório Virtual', subtitle: 'Seus agentes em um escritório 2D em tempo real' },
   { to: '/novidades', label: 'Novidades IA', icon: Newspaper, title: 'Novidades de IA', subtitle: 'Últimas do mundo de IA e APIs (via Perplexity)' },
@@ -27,6 +29,7 @@ function StatusDot({ ok }) {
 
 export default function Sidebar({ open, onClose }) {
   const { status, error } = useStatus();
+  const { enabled: authEnabled, user, logout } = useAuth();
 
   const items = [
     { name: 'API', ok: Boolean(status) && !error, label: status && !error ? 'Online' : 'Offline' },
@@ -99,6 +102,16 @@ export default function Sidebar({ open, onClose }) {
             </ul>
           )}
         </div>
+
+        {/* sessão / sair (só quando login está ativo) */}
+        {authEnabled && user && (
+          <div className="mx-3 mt-3 flex items-center justify-between gap-2 rounded-xl border border-edge bg-surface/60 p-3">
+            <span className="min-w-0 truncate text-[11px] text-body/80" title={user.email}>{user.email}</span>
+            <button onClick={logout} className="flex shrink-0 items-center gap-1 text-[11px] text-muted hover:text-red-400">
+              <LogOut size={13} /> Sair
+            </button>
+          </div>
+        )}
 
         {/* rodapé */}
         <div className="px-5 py-4 text-center">

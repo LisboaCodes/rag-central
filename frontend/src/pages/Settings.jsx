@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Database, Cloud, Cpu, Braces, Plug, MessagesSquare, GitBranch, Smartphone, Newspaper } from 'lucide-react';
+import { Database, Cloud, Cpu, Braces, Plug, MessagesSquare, GitBranch, Smartphone, Newspaper, ShieldCheck } from 'lucide-react';
 import { api, API_BASE } from '../lib/api.js';
 import { useAgents } from '../lib/AgentsContext.jsx';
 
@@ -193,6 +193,64 @@ export default function Settings() {
       )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <Section
+          icon={ShieldCheck}
+          title="Segurança & Login (2 fatores)"
+          saved={savedSection === 'auth'}
+          onSave={() => save('auth', ['AUTH_ENABLED', 'AUTH_ALLOWED_EMAILS', 'AUTH_2FA_NUMBER', 'AUTH_SESSION_TTL_HOURS', 'RESEND_API_KEY', 'RESEND_FROM'])}
+        >
+          <div className="flex items-center justify-between rounded-lg bg-background px-3 py-2">
+            <span className="text-sm">Exigir login para acessar o painel</span>
+            <button
+              type="button"
+              onClick={() => set('AUTH_ENABLED', !form.AUTH_ENABLED)}
+              className={`relative h-6 w-11 rounded-full transition-colors ${form.AUTH_ENABLED ? 'bg-emerald-600' : 'bg-slate-600'}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${form.AUTH_ENABLED ? 'left-[22px]' : 'left-0.5'}`} />
+            </button>
+          </div>
+          <p className="rounded-lg bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400">
+            ⚠️ Antes de ligar: preencha a <strong>API Key do Resend</strong>, o <strong>e-mail permitido</strong> e o
+            <strong> número do 2º fator</strong>, e confirme que o WhatsApp (seção abaixo) está conectado — senão você
+            pode se trancar para fora. O Cofre exige este login ligado.
+          </p>
+          <Input
+            label="E-mails permitidos (separados por vírgula)"
+            value={form.AUTH_ALLOWED_EMAILS || ''}
+            onChange={(e) => set('AUTH_ALLOWED_EMAILS', e.target.value)}
+            placeholder="voce@gmail.com"
+            hint="Só estes e-mails conseguem fazer login."
+          />
+          <Input
+            label="WhatsApp do 2º fator (com DDI, ex: 5511999999999)"
+            value={form.AUTH_2FA_NUMBER || ''}
+            onChange={(e) => set('AUTH_2FA_NUMBER', e.target.value)}
+            placeholder="55..."
+            hint="Número que recebe o código da 2ª etapa, via evolution-api."
+          />
+          <Input
+            label="API Key do Resend"
+            value={form.RESEND_API_KEY || ''}
+            onChange={(e) => set('RESEND_API_KEY', e.target.value)}
+            placeholder="re_…"
+            autoComplete="off"
+            hint="Crie em resend.com/api-keys. Deixe a versão mascarada (••••) para manter."
+          />
+          <Input
+            label="Remetente do e-mail (from)"
+            value={form.RESEND_FROM || ''}
+            onChange={(e) => set('RESEND_FROM', e.target.value)}
+            placeholder="CERBERUS <login@seu-dominio.com>"
+            hint="Use um domínio verificado no Resend. Para teste, onboarding@resend.dev (só envia ao seu próprio e-mail de cadastro)."
+          />
+          <Input
+            label="Duração da sessão (horas)"
+            type="number"
+            value={form.AUTH_SESSION_TTL_HOURS ?? 12}
+            onChange={(e) => set('AUTH_SESSION_TTL_HOURS', e.target.value)}
+          />
+        </Section>
+
         <Section icon={Database} title="Banco de Dados" service="db">
           <p className="text-xs text-muted">
             A conexão é definida pela <code className="font-mono text-[11px] text-violet-400">DATABASE_URL</code> no{' '}

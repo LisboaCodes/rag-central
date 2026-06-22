@@ -20,6 +20,9 @@ import cronRouter from './routes/cron.js';
 import statusRouter from './routes/status.js';
 import configRouter from './routes/config.js';
 import logsRouter from './routes/logs.js';
+import authRouter from './routes/auth.js';
+import vaultRouter from './routes/vault.js';
+import { authGate } from './services/auth.js';
 import { logEvent } from './services/activity.js';
 
 const app = express();
@@ -27,6 +30,14 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 
+// rotas de login (sempre públicas)
+app.use('/auth', authRouter);
+
+// gate global: se AUTH_ENABLED estiver ligado, exige sessão em tudo
+// (menos /auth e /status). Desligado = comportamento atual (painel aberto).
+app.use(authGate);
+
+app.use('/vault', vaultRouter);
 app.use('/query', queryRouter);
 app.use('/chat', chatRouter);
 app.use('/conversations', conversationsRouter);

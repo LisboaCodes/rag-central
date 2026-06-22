@@ -49,6 +49,17 @@ function defaults() {
     NOTIFY_INGEST: process.env.NOTIFY_INGEST === 'true',
     NOTIFY_DAILY: process.env.NOTIFY_DAILY === 'true',
     NOTIFY_NEWS: process.env.NOTIFY_NEWS === 'true',
+    // --- Login seguro (autenticação do painel) ------------------------------
+    // Quando desligado, o painel segue aberto (comportamento atual). Ao ligar,
+    // exige login por e-mail (Resend) + 2º fator por WhatsApp.
+    AUTH_ENABLED: process.env.AUTH_ENABLED === 'true',
+    AUTH_ALLOWED_EMAILS: process.env.AUTH_ALLOWED_EMAILS || '',   // csv de e-mails permitidos
+    AUTH_SESSION_SECRET: process.env.AUTH_SESSION_SECRET || '',   // segredo p/ assinar tokens (auto-gerado se vazio)
+    AUTH_SESSION_TTL_HOURS: parseInt(process.env.AUTH_SESSION_TTL_HOURS || '12', 10),
+    AUTH_2FA_NUMBER: process.env.AUTH_2FA_NUMBER || '',           // WhatsApp que recebe o 2º fator (só dígitos)
+    // Resend — envio do código de login por e-mail (resend.com)
+    RESEND_API_KEY: process.env.RESEND_API_KEY || '',
+    RESEND_FROM: process.env.RESEND_FROM || 'CERBERUS <onboarding@resend.dev>',
     EMBEDDING_MODE: process.env.EMBEDDING_MODE || 'auto',
     EMBEDDING_DIMS: parseInt(process.env.EMBEDDING_DIMS || '1536', 10),
     CHUNK_SIZE: parseInt(process.env.CHUNK_SIZE || '512', 10),
@@ -89,6 +100,17 @@ export function updateSettings(patch) {
   if (clean.WHATSAPP_NOTIFY_NUMBER) clean.WHATSAPP_NOTIFY_NUMBER = String(clean.WHATSAPP_NOTIFY_NUMBER).replace(/\D/g, '');
   for (const k of ['NOTIFY_ERRORS', 'NOTIFY_INGEST', 'NOTIFY_DAILY', 'NOTIFY_NEWS']) {
     if (clean[k] !== undefined) clean[k] = clean[k] === true || clean[k] === 'true';
+  }
+  if (clean.AUTH_ENABLED !== undefined) clean.AUTH_ENABLED = clean.AUTH_ENABLED === true || clean.AUTH_ENABLED === 'true';
+  if (clean.AUTH_2FA_NUMBER) clean.AUTH_2FA_NUMBER = String(clean.AUTH_2FA_NUMBER).replace(/\D/g, '');
+  if (clean.AUTH_ALLOWED_EMAILS !== undefined) {
+    clean.AUTH_ALLOWED_EMAILS = String(clean.AUTH_ALLOWED_EMAILS)
+      .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean).join(',');
+  }
+  if (clean.AUTH_SESSION_TTL_HOURS !== undefined) {
+    const n = parseInt(clean.AUTH_SESSION_TTL_HOURS, 10);
+    if (!Number.isFinite(n) || n < 1) throw new Error(`AUTH_SESSION_TTL_HOURS inválido: ${clean.AUTH_SESSION_TTL_HOURS}`);
+    clean.AUTH_SESSION_TTL_HOURS = n;
   }
   if (clean.CHAT_PROVIDER && !['ollama', 'openai'].includes(clean.CHAT_PROVIDER)) {
     throw new Error(`CHAT_PROVIDER inválido: ${clean.CHAT_PROVIDER} (use ollama | openai)`);

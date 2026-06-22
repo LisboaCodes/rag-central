@@ -120,7 +120,145 @@ export async function initSchema() {
     )
   `);
 
+  // --- Cofre (vault) ----------------------------------------------------
+  // Segredos ficam cifrados (AES-256-GCM) em *_enc; a chave deriva da
+  // senha-mestra (scrypt) e nunca é persistida. vault_meta guarda só o salt
+  // e um verificador para validar a senha-mestra.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vault_meta (
+      id          INT PRIMARY KEY DEFAULT 1,
+      salt        TEXT NOT NULL,
+      verifier    TEXT NOT NULL,            -- texto fixo cifrado p/ checar a senha
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      CONSTRAINT vault_meta_singleton CHECK (id = 1)
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vault_accounts (
+      id          BIGSERIAL PRIMARY KEY,
+      label       TEXT,                     -- apelido (ex: "Gmail pessoal")
+      email       TEXT NOT NULL,
+      secret_enc  TEXT,                     -- senha do e-mail (cifrada)
+      provider    TEXT,                     -- Gmail, Outlook, etc.
+      notes_enc   TEXT,                     -- anotações (cifradas)
+      created_at  TIMESTAMPTZ DEFAULT NOW(),
+      updated_at  TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vault_services (
+      id            BIGSERIAL PRIMARY KEY,
+      account_id    BIGINT REFERENCES vault_accounts(id) ON DELETE SET NULL,
+      name          TEXT NOT NULL,          -- nome do serviço (Netflix, AWS…)
+      login         TEXT,                   -- usuário/login do serviço
+      secret_enc    TEXT,                   -- senha do serviço (cifrada)
+      url           TEXT,
+      category      TEXT,
+      cost          NUMERIC,                -- valor do serviço
+      currency      TEXT DEFAULT 'BRL',
+      billing_cycle TEXT,                   -- monthly | yearly | once | weekly
+      started_on    DATE,                   -- data de criação/contratação
+      expires_on    DATE,                   -- vencimento/renovação
+      notes_enc     TEXT,
+      created_at    TIMESTAMPTZ DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS vault_services_account_idx ON vault_services (account_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS vault_services_expires_idx ON vault_services (expires_on)');
+
   await seedAgents();
+}
+
+// --- Cofre: meta + CRUD (segredos vêm/voltam cifrados; cripto no vault.js) ---
+
+export async function getVaultMeta() {
+  const { rows } = await pool.query('SELECT * FROM vault_meta WHERE id = 1');
+  return rows[0] || null;
+}
+
+export async function setVaultMeta(salt, verifier) {
+  await pool.query(
+    `INSERT INTO vault_meta (id, salt, verifier) VALUES (1, $1, $2)
+     ON CONFLICT (id) DO UPDATE SET salt = EXCLUDED.salt, verifier = EXCLUDED.verifier`,
+    [salt, verifier]
+  );
+}
+
+export async function listVaultAccounts() {
+  const { rows } = await pool.query('SELECT * FROM vault_accounts ORDER BY label, email');
+  return rows;
+}
+
+export async function getVaultAccount(id) {
+  const { rows } = await pool.query('SELECT * FROM vault_accounts WHERE id = $1', [id]);
+  return rows[0] || null;
+}
+
+export async function createVaultAccount(a) {
+  const { rows } = await pool.query(
+    `INSERT INTO vault_accounts (label, email, secret_enc, provider, notes_enc)
+     VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+    [a.label || null, a.email, a.secret_enc || null, a.provider || null, a.notes_enc || null]
+  );
+  return rows[0];
+}
+
+export async function updateVaultAccount(id, patch) {
+  const fields = ['label', 'email', 'secret_enc', 'provider', 'notes_enc'];
+  const sets = []; const vals = [];
+  for (const f of fields) if (patch[f] !== undefined) { vals.push(patch[f]); sets.push(`${f} = $${vals.length}`); }
+  if (!sets.length) return getVaultAccount(id);
+  vals.push(id);
+  const { rows } = await pool.query(
+    `UPDATE vault_accounts SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length} RETURNING *`, vals
+  );
+  return rows[0] || null;
+}
+
+export async function deleteVaultAccount(id) {
+  const res = await pool.query('DELETE FROM vault_accounts WHERE id = $1', [id]);
+  return res.rowCount;
+}
+
+export async function listVaultServices() {
+  const { rows } = await pool.query('SELECT * FROM vault_services ORDER BY name');
+  return rows;
+}
+
+export async function getVaultService(id) {
+  const { rows } = await pool.query('SELECT * FROM vault_services WHERE id = $1', [id]);
+  return rows[0] || null;
+}
+
+const SERVICE_FIELDS = ['account_id', 'name', 'login', 'secret_enc', 'url', 'category',
+  'cost', 'currency', 'billing_cycle', 'started_on', 'expires_on', 'notes_enc'];
+
+export async function createVaultService(s) {
+  const cols = []; const ph = []; const vals = [];
+  for (const f of SERVICE_FIELDS) {
+    cols.push(f); vals.push(s[f] === undefined ? null : s[f]); ph.push(`$${vals.length}`);
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO vault_services (${cols.join(',')}) VALUES (${ph.join(',')}) RETURNING *`, vals
+  );
+  return rows[0];
+}
+
+export async function updateVaultService(id, patch) {
+  const sets = []; const vals = [];
+  for (const f of SERVICE_FIELDS) if (patch[f] !== undefined) { vals.push(patch[f]); sets.push(`${f} = $${vals.length}`); }
+  if (!sets.length) return getVaultService(id);
+  vals.push(id);
+  const { rows } = await pool.query(
+    `UPDATE vault_services SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${vals.length} RETURNING *`, vals
+  );
+  return rows[0] || null;
+}
+
+export async function deleteVaultService(id) {
+  const res = await pool.query('DELETE FROM vault_services WHERE id = $1', [id]);
+  return res.rowCount;
 }
 
 // Semeia os 4 agentes originais na primeira vez (tabela vazia).

@@ -29,6 +29,11 @@ function masked(settings) {
   if (out.ANTHROPIC_API_KEY) {
     out.ANTHROPIC_API_KEY = `${KEY_MASK_PREFIX}${out.ANTHROPIC_API_KEY.slice(-4)}`;
   }
+  if (out.RESEND_API_KEY) {
+    out.RESEND_API_KEY = `${KEY_MASK_PREFIX}${out.RESEND_API_KEY.slice(-4)}`;
+  }
+  // o segredo de sessão nunca é exposto — só informa se já existe
+  out.AUTH_SESSION_SECRET = out.AUTH_SESSION_SECRET ? '••••configurado' : '';
   return out;
 }
 
@@ -60,6 +65,11 @@ router.put('/', (req, res, next) => {
     if (typeof patch.ANTHROPIC_API_KEY === 'string' && patch.ANTHROPIC_API_KEY.startsWith(KEY_MASK_PREFIX)) {
       delete patch.ANTHROPIC_API_KEY;
     }
+    if (typeof patch.RESEND_API_KEY === 'string' && patch.RESEND_API_KEY.startsWith(KEY_MASK_PREFIX)) {
+      delete patch.RESEND_API_KEY;
+    }
+    // segredo de sessão é gerido pelo próprio sistema; nunca aceita pela UI
+    delete patch.AUTH_SESSION_SECRET;
     const updated = updateSettings(patch);
     logEvent('INFO', 'config', `Configurações atualizadas: ${Object.keys(patch).join(', ') || 'nenhuma mudança'}`);
     res.json(masked(updated));
