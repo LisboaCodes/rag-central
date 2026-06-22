@@ -64,6 +64,8 @@ function defaults() {
     // (assim o banco sozinho não abre o cofre) + quais agentes podem usar.
     VAULT_AGENT_SECRET: process.env.VAULT_AGENT_SECRET || '',
     VAULT_AGENT_KEYS: process.env.VAULT_AGENT_KEYS || 'DARLENE',
+    // Runner de projetos: pasta-raiz onde os projetos/scripts ficam no host.
+    PROJECTS_DIR: process.env.PROJECTS_DIR || '',
     EMBEDDING_MODE: process.env.EMBEDDING_MODE || 'auto',
     EMBEDDING_DIMS: parseInt(process.env.EMBEDDING_DIMS || '1536', 10),
     CHUNK_SIZE: parseInt(process.env.CHUNK_SIZE || '512', 10),

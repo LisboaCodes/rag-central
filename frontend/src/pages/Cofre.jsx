@@ -16,14 +16,35 @@ export default function Cofre() {
   const [status, setStatus] = useState(null);   // {initialized, unlocked}
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   const refreshStatus = useCallback(async () => {
-    try { setStatus(await api.vault.status()); } catch (err) { setError(err.message); } finally { setLoading(false); }
+    try { setStatus(await api.vault.status()); setNeedsLogin(false); }
+    catch (err) { setError(err.message); setNeedsLogin(err.status === 401); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { refreshStatus(); }, [refreshStatus]);
 
   if (loading) return <Centered><Loader2 className="animate-spin text-muted" /></Centered>;
+  if (needsLogin) {
+    return (
+      <div className="mx-auto max-w-md">
+        <div className="rounded-2xl border border-edge bg-surface/60 p-7 text-center">
+          <Lock size={28} className="mx-auto mb-3 text-amber-400" />
+          <p className="text-sm font-semibold">O Cofre exige login ativo</p>
+          <p className="mt-2 text-xs text-muted">
+            Por segurança, o Cofre só abre com a autenticação ligada e você logado. Ative em
+            <strong className="text-body"> Configurações → Segurança &amp; Login</strong>, preencha Resend + e-mail + WhatsApp,
+            ligue o login e entre. Em produção, configure essas variáveis no Coolify.
+          </p>
+          <a href="/settings" className="mt-4 inline-block rounded-lg bg-gradient-to-r from-amber-500 to-rose-600 px-4 py-2 text-sm font-medium text-white">
+            Ir para Configurações
+          </a>
+        </div>
+      </div>
+    );
+  }
   if (error && !status) return <Centered><p className="text-sm text-red-400">{error}</p></Centered>;
 
   if (!status?.initialized) return <SetupOrUnlock mode="setup" onDone={refreshStatus} />;

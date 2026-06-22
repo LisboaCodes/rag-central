@@ -4,13 +4,14 @@ import { chatWithAgent } from './chat.js';
 import { syncRss } from './rss-scraper.js';
 import { notify } from './notify.js';
 import { consolidateAll } from './memory.js';
+import { startProject, installProject } from './projects.js';
 import { logEvent } from './activity.js';
 
 // Agendador de tarefas (CRON). Carrega os jobs do banco no boot e reescala
 // quando a API cria/edita/remove. Horário de Brasília.
 
 const TZ = 'America/Sao_Paulo';
-export const CRON_ACTIONS = ['agent_prompt', 'rss_sync', 'brain_digest', 'consolidate'];
+export const CRON_ACTIONS = ['agent_prompt', 'rss_sync', 'brain_digest', 'consolidate', 'run_project'];
 const tasks = new Map(); // id (string) -> scheduled task
 
 // executa a ação de um job e retorna um resumo textual do resultado
@@ -39,6 +40,11 @@ async function runAction(job) {
     case 'consolidate': {
       const n = await consolidateAll();
       return `${n} conversa(s) consolidada(s)`;
+    }
+    case 'run_project': {
+      if (!cfg.project) throw new Error('project é obrigatório');
+      const r = cfg.mode === 'install' ? await installProject(cfg.project) : await startProject(cfg.project);
+      return `projeto "${cfg.project}" ${cfg.mode === 'install' ? 'instalado' : 'iniciado'} (pid ${r.pid || '—'})`;
     }
     default:
       throw new Error(`ação desconhecida: ${job.action}`);

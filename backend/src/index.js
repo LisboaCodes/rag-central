@@ -22,6 +22,7 @@ import configRouter from './routes/config.js';
 import logsRouter from './routes/logs.js';
 import authRouter from './routes/auth.js';
 import vaultRouter from './routes/vault.js';
+import projectsRouter from './routes/projects.js';
 import { authGate } from './services/auth.js';
 import { logEvent } from './services/activity.js';
 
@@ -38,6 +39,7 @@ app.use('/auth', authRouter);
 app.use(authGate);
 
 app.use('/vault', vaultRouter);
+app.use('/projects', projectsRouter);
 app.use('/query', queryRouter);
 app.use('/chat', chatRouter);
 app.use('/conversations', conversationsRouter);

@@ -172,6 +172,56 @@ export const api = {
     return request(`/logs${qs ? `?${qs}` : ''}`);
   },
 
+  projects: {
+    list: () => request('/projects'),
+    create: (name) => request('/projects', { method: 'POST', body: JSON.stringify({ name }) }),
+    remove: (name) => request(`/projects/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+    get: (name) => request(`/projects/${encodeURIComponent(name)}`),
+    setConfig: (name, body) => request(`/projects/${encodeURIComponent(name)}/config`, { method: 'PUT', body: JSON.stringify(body) }),
+    tree: (name) => request(`/projects/${encodeURIComponent(name)}/tree`),
+    file: (name, path) => request(`/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(path)}`),
+    saveFile: (name, path, content) => request(`/projects/${encodeURIComponent(name)}/file`, { method: 'PUT', body: JSON.stringify({ path, content }) }),
+    createEntry: (name, path, kind) => request(`/projects/${encodeURIComponent(name)}/entry`, { method: 'POST', body: JSON.stringify({ path, kind }) }),
+    deleteEntry: (name, path) => request(`/projects/${encodeURIComponent(name)}/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
+    upload: (name, formData) => request(`/projects/${encodeURIComponent(name)}/upload`, { method: 'POST', body: formData }),
+    importGithub: (name, repo, ref) => request(`/projects/${encodeURIComponent(name)}/import-github`, { method: 'POST', body: JSON.stringify({ repo, ref }) }),
+    start: (name) => request(`/projects/${encodeURIComponent(name)}/start`, { method: 'POST' }),
+    install: (name) => request(`/projects/${encodeURIComponent(name)}/install`, { method: 'POST' }),
+    run: (name, command) => request(`/projects/${encodeURIComponent(name)}/run`, { method: 'POST', body: JSON.stringify({ command }) }),
+    stop: (name) => request(`/projects/${encodeURIComponent(name)}/stop`, { method: 'POST' }),
+    clearLogs: (name) => request(`/projects/${encodeURIComponent(name)}/clear-logs`, { method: 'POST' })
+  },
+
+  // console ao vivo via fetch+stream (manda o token no header, igual o chat)
+  streamProjectLogs: (name, { onLog, onStatus, signal }) => {
+    const token = getToken();
+    return fetch(`${API_BASE}/projects/${encodeURIComponent(name)}/logs/stream`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal
+    }).then(async (res) => {
+      if (!res.ok || !res.body) throw new Error(`Erro HTTP ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const blocks = buf.split('\n\n');
+        buf = blocks.pop() || '';
+        for (const block of blocks) {
+          const isStatus = block.includes('event: status');
+          const dataLine = block.split('\n').find((l) => l.startsWith('data: '));
+          if (!dataLine) continue;
+          try {
+            const payload = JSON.parse(dataLine.slice(6));
+            if (isStatus) onStatus?.(payload); else onLog?.(payload);
+          } catch { /* ignora linha malformada */ }
+        }
+      }
+    });
+  },
+
   config: () => request('/config'),
   updateConfig: (patch) => request('/config', { method: 'PUT', body: JSON.stringify(patch) }),
   testConnection: (service) =>

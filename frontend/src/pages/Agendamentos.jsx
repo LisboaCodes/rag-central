@@ -6,6 +6,7 @@ import { fmtDateTime, timeAgo } from '../lib/format.js';
 
 const ACTIONS = {
   agent_prompt: 'Agente roda um prompt',
+  run_project: 'Rodar um projeto/script',
   rss_sync: 'Sincronizar RSS',
   brain_digest: 'Resumo do cérebro (WhatsApp)',
   consolidate: 'Consolidar memória'
@@ -110,6 +111,7 @@ export default function Agendamentos() {
     const e = editing;
     if (!e.name.trim()) return setError('Dê um nome à tarefa.');
     if (e.action === 'agent_prompt' && (!e.config.agent || !e.config.prompt.trim())) return setError('Escolha o agente e escreva o prompt.');
+    if (e.action === 'run_project' && !e.config.project?.trim()) return setError('Informe o nome do projeto.');
     setBusy('save'); setError(null); setNotice(null);
     const body = { name: e.name.trim(), action: e.action, schedule: e.schedule.trim(), enabled: e.enabled, config: e.config };
     try {
@@ -219,6 +221,23 @@ export default function Agendamentos() {
                 <input type="checkbox" checked={!!editing.config.notify} onChange={(e) => setCfg({ notify: e.target.checked })} className="accent-blue-500" />
                 Enviar o resultado no WhatsApp (número de notificações)
               </label>
+            </div>
+          )}
+          {editing.action === 'run_project' && (
+            <div className="grid gap-3 rounded-lg border border-edge bg-background/50 p-3 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs text-muted">Projeto</label>
+                <input value={editing.config.project} onChange={(e) => setCfg({ project: e.target.value })}
+                  placeholder="nome do projeto (igual em Projetos)" className="w-full rounded-lg border border-edge bg-background px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-muted">O que rodar</label>
+                <select value={editing.config.mode || 'start'} onChange={(e) => setCfg({ mode: e.target.value })}
+                  className="w-full rounded-lg border border-edge bg-background px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
+                  <option value="start">Iniciar (comando start)</option>
+                  <option value="install">Instalar (comando install)</option>
+                </select>
+              </div>
             </div>
           )}
           {editing.action === 'brain_digest' && (
