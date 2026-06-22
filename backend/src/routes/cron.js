@@ -6,9 +6,22 @@ import { logEvent } from '../services/activity.js';
 
 const router = Router();
 
-// GET /cron — lista as tarefas agendadas
+const CRON_TZ = 'America/Sao_Paulo';
+
+// GET /cron — lista as tarefas agendadas + horário do servidor
 router.get('/', async (req, res, next) => {
-  try { res.json({ jobs: await listCronJobs(), actions: CRON_ACTIONS }); } catch (err) { next(err); }
+  try {
+    const now = new Date();
+    res.json({
+      jobs: await listCronJobs(),
+      actions: CRON_ACTIONS,
+      server: {
+        nowISO: now.toISOString(),
+        tz: CRON_TZ,
+        nowBR: now.toLocaleString('pt-BR', { timeZone: CRON_TZ })
+      }
+    });
+  } catch (err) { next(err); }
 });
 
 // POST /cron — cria uma tarefa

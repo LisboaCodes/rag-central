@@ -11,16 +11,44 @@ const ACTIONS = {
   consolidate: 'Consolidar memória'
 };
 
+// presets com 'daily'/'weekdays' usam o seletor de horário (HH:MM)
 const PRESETS = [
+  { label: 'Todo dia (escolha a hora)', cron: 'daily' },
+  { label: 'Dias úteis (escolha a hora)', cron: 'weekdays' },
   { label: 'A cada hora', cron: '0 * * * *' },
   { label: 'A cada 6 horas', cron: '0 */6 * * *' },
-  { label: 'Todo dia às 9h', cron: '0 9 * * *' },
-  { label: 'Dias úteis às 9h', cron: '0 9 * * 1-5' },
   { label: 'Toda segunda às 9h', cron: '0 9 * * 1' },
   { label: 'Personalizado (cron)', cron: 'custom' }
 ];
 
-const humanCron = (expr) => PRESETS.find((p) => p.cron === expr)?.label || expr;
+const pad = (n) => String(n).padStart(2, '0');
+
+// monta a expressão cron a partir do preset + horário escolhido
+function computeSchedule(preset, time) {
+  const [hh, mm] = (time || '09:00').split(':');
+  if (preset === 'daily') return `${Number(mm)} ${Number(hh)} * * *`;
+  if (preset === 'weekdays') return `${Number(mm)} ${Number(hh)} * * 1-5`;
+  return preset;
+}
+
+// descreve uma expressão cron de forma amigável
+function describeCron(expr) {
+  let m = expr.match(/^(\d+) (\d+) \* \* \*$/);
+  if (m) return `Todo dia às ${pad(m[2])}:${pad(m[1])}`;
+  m = expr.match(/^(\d+) (\d+) \* \* 1-5$/);
+  if (m) return `Dias úteis às ${pad(m[2])}:${pad(m[1])}`;
+  return PRESETS.find((p) => p.cron === expr)?.label || expr;
+}
+
+// se a expressão for diária/dias-úteis, devolve {preset, time} pra reabrir no editor
+function decodeSchedule(expr) {
+  let m = expr.match(/^(\d+) (\d+) \* \* \*$/);
+  if (m) return { preset: 'daily', time: `${pad(m[2])}:${pad(m[1])}` };
+  m = expr.match(/^(\d+) (\d+) \* \* 1-5$/);
+  if (m) return { preset: 'weekdays', time: `${pad(m[2])}:${pad(m[1])}` };
+  if (PRESETS.some((p) => p.cron === expr)) return { preset: expr, time: '09:00' };
+  return { preset: 'custom', time: '09:00' };
+}
 
 const EMPTY = { name: '', action: 'agent_prompt', schedule: '0 9 * * *', enabled: true, config: { agent: '', prompt: '', project: '', notify: true } };
 
@@ -31,21 +59,51 @@ export default function Agendamentos() {
   const [notice, setNotice] = useState(null);
   const [busy, setBusy] = useState(null);
   const [editing, setEditing] = useState(null); // job em edição/criação
-  const [presetSel, setPresetSel] = useState('0 9 * * *');
+  const [presetSel, setPresetSel] = useState('daily');
+  const [dailyTime, setDailyTime] = useState('09:00');
+  const [serverClock, setServerClock] = useState(null); // { base: Date(server), at: ms local da resposta }
 
   const load = useCallback(async () => {
-    try { const r = await api.cron.list(); setJobs(r.jobs); setError(null); }
-    catch (err) { setError(err.message); }
+    try {
+      const r = await api.cron.list();
+      setJobs(r.jobs);
+      if (r.server?.nowISO) setServerClock({ base: new Date(r.server.nowISO).getTime(), at: Date.now(), tz: r.server.tz });
+      setError(null);
+    } catch (err) { setError(err.message); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
+  // relógio do servidor ao vivo (extrapola do horário recebido + tempo decorrido)
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const serverTimeStr = serverClock
+    ? new Date(serverClock.base + (nowMs - serverClock.at)).toLocaleString('pt-BR', { timeZone: serverClock.tz || 'America/Sao_Paulo' })
+    : '—';
+
   function openNew() {
     setEditing({ ...EMPTY, config: { ...EMPTY.config } });
-    setPresetSel('0 9 * * *');
+    setPresetSel('daily'); setDailyTime('09:00');
+    setEditing((e) => ({ ...e, schedule: computeSchedule('daily', '09:00') }));
   }
   function openEdit(j) {
     setEditing({ id: j.id, name: j.name, action: j.action, schedule: j.schedule, enabled: j.enabled, config: { agent: '', prompt: '', project: '', notify: true, ...(j.config || {}) } });
-    setPresetSel(PRESETS.some((p) => p.cron === j.schedule) ? j.schedule : 'custom');
+    const d = decodeSchedule(j.schedule);
+    setPresetSel(d.preset); setDailyTime(d.time);
+  }
+
+  // ao mudar preset ou horário, recalcula a expressão cron
+  function pickPreset(value) {
+    setPresetSel(value);
+    if (value !== 'custom') setEditing((ed) => ({ ...ed, schedule: computeSchedule(value, dailyTime) }));
+  }
+  function pickTime(value) {
+    setDailyTime(value);
+    if (presetSel === 'daily' || presetSel === 'weekdays') {
+      setEditing((ed) => ({ ...ed, schedule: computeSchedule(presetSel, value) }));
+    }
   }
 
   async function save() {
@@ -97,6 +155,9 @@ export default function Agendamentos() {
         <p className="text-xs text-muted">
           Tarefas que rodam sozinhas no horário definido (horário de Brasília).
         </p>
+        <span className="flex items-center gap-1.5 rounded-lg border border-edge bg-surface px-2.5 py-1 text-[11px] text-muted" title="Horário atual do servidor (fuso usado pelo agendador)">
+          <Clock size={12} className="text-blue-400" /> Servidor: <span className="font-mono text-body/80">{serverTimeStr}</span>
+        </span>
         <div className="ml-auto flex gap-2">
           <button onClick={load} className="rounded-lg border border-edge bg-surface p-2 text-muted hover:text-body" title="Atualizar"><RefreshCw size={15} /></button>
           <button onClick={openNew} className="flex items-center gap-1.5 rounded-lg bg-blue-500/15 px-3 py-2 text-sm font-medium text-blue-300 hover:bg-blue-500/25">
@@ -168,12 +229,18 @@ export default function Agendamentos() {
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-xs text-muted">Quando</label>
-              <select value={presetSel}
-                onChange={(e) => { setPresetSel(e.target.value); if (e.target.value !== 'custom') setEditing((ed) => ({ ...ed, schedule: e.target.value })); }}
+              <select value={presetSel} onChange={(e) => pickPreset(e.target.value)}
                 className="w-full rounded-lg border border-edge bg-background px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
                 {PRESETS.map((p) => <option key={p.cron} value={p.cron}>{p.label}</option>)}
               </select>
             </div>
+            {(presetSel === 'daily' || presetSel === 'weekdays') && (
+              <div>
+                <label className="mb-1 block text-xs text-muted">Horário (Brasília)</label>
+                <input type="time" value={dailyTime} onChange={(e) => pickTime(e.target.value)}
+                  className="w-full rounded-lg border border-edge bg-background px-3 py-2 text-sm focus:border-blue-500 focus:outline-none" />
+              </div>
+            )}
             {presetSel === 'custom' && (
               <div>
                 <label className="mb-1 block text-xs text-muted">Expressão cron</label>
@@ -183,6 +250,7 @@ export default function Agendamentos() {
               </div>
             )}
           </div>
+          <p className="text-[11px] text-muted/70">Vai rodar: <strong className="text-body/80">{describeCron(editing.schedule)}</strong> <span className="font-mono">({editing.schedule})</span></p>
 
           <div className="flex items-center justify-between pt-1">
             <label className="flex items-center gap-2 text-sm text-muted">
@@ -217,7 +285,7 @@ export default function Agendamentos() {
                   <span className={`h-2.5 w-2.5 rounded-full ${j.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`} />
                   <span className="text-sm font-semibold">{j.name}</span>
                   <span className="rounded-full bg-blue-500/15 px-2 py-0.5 text-[11px] text-blue-300">{ACTIONS[j.action] || j.action}</span>
-                  <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-muted">⏰ {humanCron(j.schedule)}</span>
+                  <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-muted">⏰ {describeCron(j.schedule)}</span>
                   {j.config?.agent && <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] text-muted">👤 {j.config.agent}</span>}
                   <div className="ml-auto flex gap-1">
                     <button onClick={() => runNow(j)} disabled={working} className="rounded-lg p-1.5 text-muted hover:bg-white/5 hover:text-emerald-400 disabled:opacity-50" title="Rodar agora"><Play size={14} /></button>
