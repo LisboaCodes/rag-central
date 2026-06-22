@@ -31,6 +31,10 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 
+// healthcheck público (Coolify/uptime) — responde 200 SEMPRE, mesmo com o
+// login ligado (fica antes do authGate). Evita deploy "Failed" por healthcheck.
+app.get(['/health', '/healthz'], (req, res) => res.json({ ok: true, ts: Date.now() }));
+
 // rotas de login (sempre públicas)
 app.use('/auth', authRouter);
 
