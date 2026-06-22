@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   Vault, Lock, Unlock, Plus, Eye, EyeOff, Copy, Pencil, Trash2, Mail, CreditCard,
-  CalendarClock, Loader2, ShieldCheck, X, ExternalLink
+  CalendarClock, Loader2, ShieldCheck, X, ExternalLink, Bot
 } from 'lucide-react';
 import { api } from '../lib/api.js';
 
@@ -28,7 +28,7 @@ export default function Cofre() {
 
   if (!status?.initialized) return <SetupOrUnlock mode="setup" onDone={refreshStatus} />;
   if (!status?.unlocked) return <SetupOrUnlock mode="unlock" onDone={refreshStatus} />;
-  return <VaultContent onLock={refreshStatus} />;
+  return <VaultContent status={status} onLock={refreshStatus} onStatusChange={refreshStatus} />;
 }
 
 function Centered({ children }) {
@@ -93,7 +93,7 @@ function SetupOrUnlock({ mode, onDone }) {
 }
 
 // --- conteúdo do cofre aberto ----------------------------------------------
-function VaultContent({ onLock }) {
+function VaultContent({ status, onLock, onStatusChange }) {
   const [accounts, setAccounts] = useState([]);
   const [services, setServices] = useState([]);
   const [error, setError] = useState('');
@@ -137,6 +137,8 @@ function VaultContent({ onLock }) {
 
       {error && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</p>}
 
+      <AgentAccessPanel status={status} onChange={onStatusChange} />
+
       {/* contas de e-mail */}
       <Section title="Contas de e-mail" icon={Mail} onAdd={() => setEditAccount({})}>
         {accounts.length === 0
@@ -169,6 +171,68 @@ function VaultContent({ onLock }) {
       {editService && (
         <ServiceModal entry={editService} accounts={accounts} onClose={() => setEditService(null)} onSaved={() => { setEditService(null); load(); }} />
       )}
+    </div>
+  );
+}
+
+// painel: liberar a IA (secretária) a operar o cofre sozinha
+function AgentAccessPanel({ status, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [pw, setPw] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const enabled = status?.agentAccessEnabled;
+  const secretOk = status?.agentSecretConfigured;
+
+  async function enable(e) {
+    e.preventDefault();
+    setLoading(true); setError('');
+    try { await api.vault.agentAccess(pw, true); setPw(''); setOpen(false); onChange(); }
+    catch (err) { setError(err.message); } finally { setLoading(false); }
+  }
+  async function disable() {
+    if (!confirm('Revogar o acesso da IA ao cofre?')) return;
+    setLoading(true); setError('');
+    try { await api.vault.agentAccess('', false); onChange(); }
+    catch (err) { setError(err.message); } finally { setLoading(false); }
+  }
+
+  return (
+    <div className="rounded-xl border border-edge bg-surface/60 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Bot size={16} className="text-violet-400" />
+          <div>
+            <p className="text-sm font-semibold">Acesso da IA (secretária)</p>
+            <p className="text-[11px] text-muted">
+              {enabled ? 'A DARLENE pode anotar e consultar o cofre no chat.' : 'Libere para a DARLENE guardar/consultar dados no cofre.'}
+            </p>
+          </div>
+        </div>
+        {enabled
+          ? <button onClick={disable} disabled={loading} className="rounded-lg border border-edge px-3 py-1.5 text-xs text-muted hover:text-red-400">Revogar acesso</button>
+          : <button onClick={() => setOpen((v) => !v)} disabled={!secretOk} className="rounded-lg bg-violet-500/15 px-3 py-1.5 text-xs text-violet-300 hover:bg-violet-500/25 disabled:opacity-40">Liberar acesso</button>}
+      </div>
+
+      {!secretOk && !enabled && (
+        <p className="mt-2 rounded-lg bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400">
+          Configure o <code>VAULT_AGENT_SECRET</code> em Configurações → Segurança antes de liberar (cifra a chave guardada).
+        </p>
+      )}
+
+      {open && !enabled && (
+        <form onSubmit={enable} className="mt-3 flex flex-wrap items-end gap-2">
+          <div className="flex-1">
+            <label className="mb-1 block text-[11px] text-muted">Confirme a senha-mestra para autorizar</label>
+            <input type="password" required autoFocus value={pw} onChange={(e) => setPw(e.target.value)}
+              className="w-full rounded-lg border border-edge bg-[#0d0f18] px-3 py-2 text-sm outline-none focus:border-violet-500" />
+          </div>
+          <button type="submit" disabled={loading} className="flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-60">
+            {loading && <Loader2 size={15} className="animate-spin" />} Autorizar
+          </button>
+        </form>
+      )}
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
     </div>
   );
 }

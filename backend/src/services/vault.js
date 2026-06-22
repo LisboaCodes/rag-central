@@ -1,6 +1,7 @@
 import crypto from 'crypto';
+import { getSettings } from './settings.js';
 import {
-  getVaultMeta, setVaultMeta,
+  getVaultMeta, setVaultMeta, setVaultAgentMaster, findVaultAccountByEmail,
   listVaultAccounts, getVaultAccount, createVaultAccount, updateVaultAccount, deleteVaultAccount,
   listVaultServices, getVaultService, createVaultService, updateVaultService, deleteVaultService
 } from './db.js';
@@ -193,6 +194,101 @@ function shapeService(r, key, reveal) {
 
 function safeDecrypt(key, blob) {
   try { return decrypt(key, blob); } catch { return ''; }
+}
+
+// ---- acesso da IA (agente opera o cofre com a chave guardada) -------------
+// A senha-mestra fica cifrada (agent_master_enc) com uma chave derivada do
+// VAULT_AGENT_SECRET (.env). Assim o banco sozinho não abre o cofre.
+
+export function agentSecretConfigured() {
+  return Boolean(getSettings().VAULT_AGENT_SECRET);
+}
+
+export async function agentAccessEnabled() {
+  const meta = await getVaultMeta();
+  return Boolean(meta?.agent_master_enc);
+}
+
+export function agentAllowed(agentKey) {
+  const keys = String(getSettings().VAULT_AGENT_KEYS || '')
+    .split(',').map((k) => k.trim().toUpperCase()).filter(Boolean);
+  return Boolean(agentKey) && keys.includes(String(agentKey).toUpperCase());
+}
+
+function wrapKey(meta) {
+  const secret = getSettings().VAULT_AGENT_SECRET;
+  if (!secret) throw httpErr(400, 'VAULT_AGENT_SECRET não configurado (.env do backend)');
+  return deriveKey(secret, meta.salt);
+}
+
+// libera (ou revoga) o acesso da IA. Exige a senha-mestra correta.
+export async function setAgentAccess(masterPassword, enable) {
+  const meta = await getVaultMeta();
+  if (!meta) throw httpErr(400, 'Cofre ainda não inicializado');
+  if (!enable) { await setVaultAgentMaster(null); return false; }
+  const key = deriveKey(masterPassword, meta.salt);
+  let ok = false;
+  try { ok = decrypt(key, meta.verifier) === VERIFIER_PLAINTEXT; } catch { ok = false; }
+  if (!ok) throw httpErr(401, 'Senha-mestra incorreta');
+  await setVaultAgentMaster(encrypt(wrapKey(meta), masterPassword));
+  return true;
+}
+
+// deriva a chave do cofre a partir da senha-mestra guardada (uso interno do agente)
+async function agentKey() {
+  const meta = await getVaultMeta();
+  if (!meta?.agent_master_enc) throw httpErr(423, 'Acesso da IA ao cofre não está ativado');
+  const master = decrypt(wrapKey(meta), meta.agent_master_enc);
+  return deriveKey(master, meta.salt);
+}
+
+// operações que a IA usa (via ferramentas no chat) ------------------------
+
+export async function agentAddAccount(body) {
+  const key = await agentKey();
+  if (!body?.email) throw httpErr(400, 'e-mail da conta é obrigatório');
+  const row = await createVaultAccount({
+    label: body.label || null, email: body.email, provider: body.provider || null,
+    secret_enc: encrypt(key, body.password), notes_enc: encrypt(key, body.notes)
+  });
+  return { id: row.id, email: row.email };
+}
+
+export async function agentAddService(body) {
+  const key = await agentKey();
+  if (!body?.name) throw httpErr(400, 'nome do serviço é obrigatório');
+  let accountId = body.account_id || null;
+  if (!accountId && body.email) {
+    const acc = await findVaultAccountByEmail(body.email);
+    if (acc) accountId = acc.id;
+  }
+  const row = await createVaultService({
+    account_id: accountId, name: body.name, login: body.login || null, url: body.url || null,
+    category: body.category || null, cost: numOrNull(body.cost), currency: body.currency || 'BRL',
+    billing_cycle: body.billing_cycle || null, started_on: dateOrNull(body.started_on),
+    expires_on: dateOrNull(body.expires_on), secret_enc: encrypt(key, body.password), notes_enc: encrypt(key, body.notes)
+  });
+  return { id: row.id, name: row.name, account_id: accountId };
+}
+
+// busca textual no cofre (a IA recebe os segredos decifrados pra responder)
+export async function agentSearch(query) {
+  const key = await agentKey();
+  const q = String(query || '').trim().toLowerCase();
+  const [accs, svcs] = [await listVaultAccounts(), await listVaultServices()];
+  const matchAcc = (a) => !q || [a.label, a.email, a.provider].some((v) => String(v || '').toLowerCase().includes(q));
+  const matchSvc = (s) => !q || [s.name, s.login, s.category, s.url].some((v) => String(v || '').toLowerCase().includes(q));
+  return {
+    contas: accs.filter(matchAcc).slice(0, 12).map((a) => ({
+      email: a.email, apelido: a.label, provedor: a.provider,
+      senha: safeDecrypt(key, a.secret_enc), notas: safeDecrypt(key, a.notes_enc)
+    })),
+    servicos: svcs.filter(matchSvc).slice(0, 20).map((s) => ({
+      nome: s.name, login: s.login, senha: safeDecrypt(key, s.secret_enc), url: s.url,
+      categoria: s.category, valor: s.cost === null ? null : Number(s.cost), moeda: s.currency,
+      ciclo: s.billing_cycle, criado_em: s.started_on, expira_em: s.expires_on, notas: safeDecrypt(key, s.notes_enc)
+    }))
+  };
 }
 
 // ---- utils ----------------------------------------------------------------

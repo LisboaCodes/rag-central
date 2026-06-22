@@ -217,7 +217,7 @@ function withImages(messages, images) {
 // ele produzir a resposta final (máx. 6 rodadas). Suporta imagens (vision).
 async function runWithTools(prov, baseMessages, ctx, images) {
   const client = new OpenAI({ apiKey: prov.apiKey, baseURL: prov.apiBase });
-  const tools = getToolDefs();
+  const tools = await getToolDefs(ctx);
   let messages = withImages([...baseMessages], images);
   let triedNoImg = false;
   const toolsUsed = [];
@@ -263,7 +263,7 @@ async function runWithTools(prov, baseMessages, ctx, images) {
 // (emite {type:'tool', name}); só a resposta final (sem tool_calls) é streamada.
 async function runWithToolsStream(prov, baseMessages, ctx, onEvent, images) {
   const client = new OpenAI({ apiKey: prov.apiKey, baseURL: prov.apiBase });
-  const tools = getToolDefs();
+  const tools = await getToolDefs(ctx);
   let messages = withImages([...baseMessages], images);
   let triedNoImg = false;
   const toolsUsed = [];

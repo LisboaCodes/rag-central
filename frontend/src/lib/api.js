@@ -48,6 +48,7 @@ export const api = {
     setup: (password) => request('/vault/setup', { method: 'POST', body: JSON.stringify({ password }) }),
     unlock: (password) => request('/vault/unlock', { method: 'POST', body: JSON.stringify({ password }) }),
     lock: () => request('/vault/lock', { method: 'POST' }),
+    agentAccess: (password, enable) => request('/vault/agent-access', { method: 'POST', body: JSON.stringify({ password, enable }) }),
     accounts: (reveal) => request(`/vault/accounts${reveal ? '?reveal=1' : ''}`),
     addAccount: (body) => request('/vault/accounts', { method: 'POST', body: JSON.stringify(body) }),
     updateAccount: (id, body) => request(`/vault/accounts/${id}`, { method: 'PUT', body: JSON.stringify(body) }),

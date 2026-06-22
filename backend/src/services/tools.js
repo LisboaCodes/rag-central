@@ -4,6 +4,7 @@ import { searchSimilar, insertChunks } from './db.js';
 import { chunkText } from './chunker.js';
 import * as gh from './github.js';
 import { askPerplexity, perplexityEnabled } from './perplexity.js';
+import * as vault from './vault.js';
 
 // Ferramentas que os agentes podem invocar (function-calling OpenAI-compatible).
 // As de RAG funcionam sempre; as de GitHub só aparecem se houver GITHUB_TOKEN.
@@ -117,11 +118,61 @@ const WEB_TOOL = {
   }
 };
 
-export function getToolDefs() {
+const VAULT_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'salvar_no_cofre',
+      description: 'Guarda no cofre seguro uma conta de e-mail ou um serviço (com senha, valor, datas). Use quando o usuário pedir para anotar/guardar credenciais ou dados de um serviço.',
+      parameters: {
+        type: 'object',
+        properties: {
+          tipo: { type: 'string', enum: ['conta', 'servico'], description: "'conta' para conta de e-mail; 'servico' para um serviço/assinatura" },
+          email: { type: 'string', description: 'e-mail da conta (tipo=conta) ou e-mail vinculado ao serviço (tipo=servico)' },
+          nome: { type: 'string', description: 'nome do serviço (tipo=servico)' },
+          apelido: { type: 'string', description: 'apelido da conta (tipo=conta)' },
+          provedor: { type: 'string', description: 'provedor da conta (Gmail, Outlook…)' },
+          login: { type: 'string', description: 'login/usuário do serviço' },
+          senha: { type: 'string', description: 'a senha' },
+          url: { type: 'string' },
+          categoria: { type: 'string' },
+          valor: { type: 'number', description: 'valor/custo do serviço' },
+          moeda: { type: 'string', description: 'ex: BRL' },
+          ciclo: { type: 'string', enum: ['monthly', 'yearly', 'weekly', 'once'], description: 'ciclo de cobrança' },
+          criado_em: { type: 'string', description: 'data de criação/contratação (YYYY-MM-DD)' },
+          expira_em: { type: 'string', description: 'data de vencimento/renovação (YYYY-MM-DD)' },
+          notas: { type: 'string' }
+        },
+        required: ['tipo']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'consultar_cofre',
+      description: 'Consulta o cofre seguro e retorna contas/serviços (incluindo senhas) que casam com a busca. Use quando o usuário pedir uma senha ou dados guardados.',
+      parameters: {
+        type: 'object',
+        properties: { busca: { type: 'string', description: 'termo (nome do serviço, e-mail, categoria). Vazio = lista tudo.' } }
+      }
+    }
+  }
+];
+
+// a IA só vê as ferramentas do cofre se: agente autorizado + segredo do .env + acesso liberado
+async function vaultToolsAvailable(agentKey) {
+  try {
+    return vault.agentAllowed(agentKey) && vault.agentSecretConfigured() && (await vault.agentAccessEnabled());
+  } catch { return false; }
+}
+
+export async function getToolDefs(ctx = {}) {
   const { GITHUB_TOKEN } = getSettings();
   const defs = [...RAG_TOOLS];
   if (GITHUB_TOKEN) defs.push(...GITHUB_TOOLS);
   if (perplexityEnabled()) defs.push(WEB_TOOL);
+  if (await vaultToolsAvailable(ctx.agent)) defs.push(...VAULT_TOOLS);
   return defs;
 }
 
@@ -176,6 +227,23 @@ export async function executeTool(name, args = {}, ctx = {}) {
       case 'pesquisar_web': {
         const r = await askPerplexity(String(args.query || ''), { recency: args.recencia });
         return { resposta: r.text.slice(0, 4000), fontes: r.citations.slice(0, 8) };
+      }
+      case 'salvar_no_cofre': {
+        if (!vault.agentAllowed(ctx.agent)) return { erro: 'este agente não tem acesso ao cofre' };
+        const a = args || {};
+        if (a.tipo === 'conta') {
+          const r = await vault.agentAddAccount({ label: a.apelido, email: a.email, provider: a.provedor, password: a.senha, notes: a.notas });
+          return { ok: true, guardado: 'conta', email: r.email };
+        }
+        const r = await vault.agentAddService({
+          name: a.nome, email: a.email, login: a.login, password: a.senha, url: a.url, category: a.categoria,
+          cost: a.valor, currency: a.moeda, billing_cycle: a.ciclo, started_on: a.criado_em, expires_on: a.expira_em, notes: a.notas
+        });
+        return { ok: true, guardado: 'servico', nome: r.name, vinculado: Boolean(r.account_id) };
+      }
+      case 'consultar_cofre': {
+        if (!vault.agentAllowed(ctx.agent)) return { erro: 'este agente não tem acesso ao cofre' };
+        return await vault.agentSearch(args.busca || '');
       }
       default:
         return { erro: `ferramenta desconhecida: ${name}` };

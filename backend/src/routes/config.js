@@ -34,6 +34,7 @@ function masked(settings) {
   }
   // o segredo de sessão nunca é exposto — só informa se já existe
   out.AUTH_SESSION_SECRET = out.AUTH_SESSION_SECRET ? '••••configurado' : '';
+  out.VAULT_AGENT_SECRET = out.VAULT_AGENT_SECRET ? '••••configurado' : '';
   return out;
 }
 
@@ -70,6 +71,9 @@ router.put('/', (req, res, next) => {
     }
     // segredo de sessão é gerido pelo próprio sistema; nunca aceita pela UI
     delete patch.AUTH_SESSION_SECRET;
+    if (typeof patch.VAULT_AGENT_SECRET === 'string' && patch.VAULT_AGENT_SECRET.startsWith(KEY_MASK_PREFIX)) {
+      delete patch.VAULT_AGENT_SECRET;
+    }
     const updated = updateSettings(patch);
     logEvent('INFO', 'config', `Configurações atualizadas: ${Object.keys(patch).join(', ') || 'nenhuma mudança'}`);
     res.json(masked(updated));

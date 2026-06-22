@@ -133,6 +133,8 @@ export async function initSchema() {
       CONSTRAINT vault_meta_singleton CHECK (id = 1)
     )
   `);
+  // senha-mestra cifrada com VAULT_AGENT_SECRET p/ a IA (DARLENE) operar o cofre
+  await pool.query('ALTER TABLE vault_meta ADD COLUMN IF NOT EXISTS agent_master_enc TEXT');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS vault_accounts (
       id          BIGSERIAL PRIMARY KEY,
@@ -185,9 +187,18 @@ export async function setVaultMeta(salt, verifier) {
   );
 }
 
+export async function setVaultAgentMaster(enc) {
+  await pool.query('UPDATE vault_meta SET agent_master_enc = $1 WHERE id = 1', [enc]);
+}
+
 export async function listVaultAccounts() {
   const { rows } = await pool.query('SELECT * FROM vault_accounts ORDER BY label, email');
   return rows;
+}
+
+export async function findVaultAccountByEmail(email) {
+  const { rows } = await pool.query('SELECT * FROM vault_accounts WHERE lower(email) = lower($1) LIMIT 1', [String(email || '')]);
+  return rows[0] || null;
 }
 
 export async function getVaultAccount(id) {

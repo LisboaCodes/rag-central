@@ -11,9 +11,26 @@ router.use(requireAuth);
 // fingerprint da sessão -> chaveia o estado de "cofre aberto"
 function fp(req) { return tokenFingerprint(req.authToken); }
 
-// GET /vault/status — { initialized, unlocked }
+// GET /vault/status — { initialized, unlocked, agentSecretConfigured, agentAccessEnabled }
 router.get('/status', async (req, res, next) => {
-  try { res.json(await vault.vaultStatus(fp(req))); } catch (err) { next(err); }
+  try {
+    const base = await vault.vaultStatus(fp(req));
+    res.json({
+      ...base,
+      agentSecretConfigured: vault.agentSecretConfigured(),
+      agentAccessEnabled: await vault.agentAccessEnabled()
+    });
+  } catch (err) { next(err); }
+});
+
+// POST /vault/agent-access { password, enable } — libera/revoga a IA operar o cofre
+router.post('/agent-access', async (req, res, next) => {
+  try {
+    const enable = req.body?.enable !== false;
+    const on = await vault.setAgentAccess(req.body?.password, enable);
+    logEvent('INFO', 'vault', `acesso da IA ao cofre ${on ? 'liberado' : 'revogado'} por ${req.user.email}`);
+    res.json({ ok: true, agentAccessEnabled: on });
+  } catch (err) { next(err); }
 });
 
 // POST /vault/setup { password } — define a senha-mestra (1ª vez)

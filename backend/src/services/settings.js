@@ -60,6 +60,10 @@ function defaults() {
     // Resend — envio do código de login por e-mail (resend.com)
     RESEND_API_KEY: process.env.RESEND_API_KEY || '',
     RESEND_FROM: process.env.RESEND_FROM || 'CERBERUS <onboarding@resend.dev>',
+    // Cofre operado por agente: segredo que cifra a senha-mestra guardada
+    // (assim o banco sozinho não abre o cofre) + quais agentes podem usar.
+    VAULT_AGENT_SECRET: process.env.VAULT_AGENT_SECRET || '',
+    VAULT_AGENT_KEYS: process.env.VAULT_AGENT_KEYS || 'DARLENE',
     EMBEDDING_MODE: process.env.EMBEDDING_MODE || 'auto',
     EMBEDDING_DIMS: parseInt(process.env.EMBEDDING_DIMS || '1536', 10),
     CHUNK_SIZE: parseInt(process.env.CHUNK_SIZE || '512', 10),
@@ -106,6 +110,10 @@ export function updateSettings(patch) {
   if (clean.AUTH_ALLOWED_EMAILS !== undefined) {
     clean.AUTH_ALLOWED_EMAILS = String(clean.AUTH_ALLOWED_EMAILS)
       .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean).join(',');
+  }
+  if (clean.VAULT_AGENT_KEYS !== undefined) {
+    clean.VAULT_AGENT_KEYS = String(clean.VAULT_AGENT_KEYS)
+      .split(',').map((k) => k.trim().toUpperCase()).filter(Boolean).join(',');
   }
   if (clean.AUTH_SESSION_TTL_HOURS !== undefined) {
     const n = parseInt(clean.AUTH_SESSION_TTL_HOURS, 10);

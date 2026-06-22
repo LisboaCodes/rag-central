@@ -197,7 +197,7 @@ export default function Settings() {
           icon={ShieldCheck}
           title="Segurança & Login (2 fatores)"
           saved={savedSection === 'auth'}
-          onSave={() => save('auth', ['AUTH_ENABLED', 'AUTH_ALLOWED_EMAILS', 'AUTH_2FA_NUMBER', 'AUTH_SESSION_TTL_HOURS', 'RESEND_API_KEY', 'RESEND_FROM'])}
+          onSave={() => save('auth', ['AUTH_ENABLED', 'AUTH_ALLOWED_EMAILS', 'AUTH_2FA_NUMBER', 'AUTH_SESSION_TTL_HOURS', 'RESEND_API_KEY', 'RESEND_FROM', 'VAULT_AGENT_SECRET', 'VAULT_AGENT_KEYS'])}
         >
           <div className="flex items-center justify-between rounded-lg bg-background px-3 py-2">
             <span className="text-sm">Exigir login para acessar o painel</span>
@@ -249,6 +249,27 @@ export default function Settings() {
             value={form.AUTH_SESSION_TTL_HOURS ?? 12}
             onChange={(e) => set('AUTH_SESSION_TTL_HOURS', e.target.value)}
           />
+          <div className="space-y-4 border-t border-edge pt-4">
+            <p className="text-xs font-semibold text-body/90">🤖 Acesso da IA ao Cofre</p>
+            <Input
+              label="VAULT_AGENT_SECRET (segredo que cifra a chave guardada)"
+              value={form.VAULT_AGENT_SECRET || ''}
+              onChange={(e) => set('VAULT_AGENT_SECRET', e.target.value)}
+              placeholder="uma frase secreta longa e aleatória"
+              autoComplete="off"
+              hint="Ideal pôr no .env/Coolify. Sem ele a IA não opera o cofre. Deixe mascarado (••••) para manter."
+            />
+            <Input
+              label="Agentes com acesso ao Cofre (separados por vírgula)"
+              value={form.VAULT_AGENT_KEYS || ''}
+              onChange={(e) => set('VAULT_AGENT_KEYS', e.target.value)}
+              placeholder="DARLENE"
+              hint="Só estes agentes ganham as ferramentas de salvar/consultar no cofre."
+            />
+            <p className="rounded-lg bg-violet-500/5 px-3 py-2 text-[11px] text-violet-300">
+              Depois de salvar o segredo, vá em <strong>Cofre → Acesso da IA</strong> e clique em <strong>Liberar acesso</strong> (confirma a senha-mestra uma vez).
+            </p>
+          </div>
         </Section>
 
         <Section icon={Database} title="Banco de Dados" service="db">
