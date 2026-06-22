@@ -1,6 +1,6 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, useEffect, Suspense } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Html, ContactShadows, RoundedBox } from '@react-three/drei';
+import { OrbitControls, Html, ContactShadows, RoundedBox, useTexture } from '@react-three/drei';
 import { X } from 'lucide-react';
 import { useStatus } from '../lib/StatusContext.jsx';
 import { useAgents, hexOf } from '../lib/AgentsContext.jsx';
@@ -172,17 +172,175 @@ function Furniture() {
     <group>
       <Plant position={[-FW / 2 + 1, 0, FD / 2 - 1]} />
       <Plant position={[FW / 2 - 1, 0, FD / 2 - 1]} />
-      <Plant position={[FW / 2 - 1, 0, -FD / 2 + 1]} />
-      <ServerRack position={[FW / 2 - 1.2, 0, -FD / 2 + 2.5]} />
-      <ServerRack position={[FW / 2 - 1.2, 0, -FD / 2 + 4]} />
-      <Sofa position={[6.5, 0, 4]} rotation={[0, Math.PI, 0]} />
-      <Sofa position={[8, 0, 2.5]} rotation={[0, -Math.PI / 2, 0]} />
+      <Sofa position={[5.5, 0, 5]} rotation={[0, Math.PI, 0]} />
+      <Sofa position={[7.5, 0, 3.5]} rotation={[0, -Math.PI / 2, 0]} />
     </group>
   );
 }
 
-// área onde os agentes circulam (evita paredes e a sala de reunião do fundo)
-const WALK = { minX: -8, maxX: 8, minZ: -1.5, maxZ: 6 };
+// ---- DATACENTER (fileiras de racks atrás do vidro, luz fria) ---------------
+const DC = { cx: 8, cz: -4, w: 5.6, d: 5.6, h: 2.5 };
+function Datacenter() {
+  const { cx, cz, w, d, h } = DC;
+  const racks = [];
+  for (let row = 0; row < 2; row++) {
+    for (let i = 0; i < 3; i++) racks.push([cx - 1.3 + row * 2.6, cz - 1.7 + i * 1.7]);
+  }
+  return (
+    <group>
+      {/* piso técnico elevado */}
+      <Box args={[w, 0.06, d]} position={[cx, 0.05, cz]} color="#39414f" />
+      {/* paredes de vidro (frente e oeste) */}
+      <Box args={[w, h, 0.1]} position={[cx, h / 2, cz + d / 2]} color={C.glass} opacity={0.2} />
+      <Box args={[0.1, h, d]} position={[cx - w / 2, h / 2, cz]} color={C.glass} opacity={0.2} />
+      {/* viga superior */}
+      <Box args={[w, 0.18, d]} position={[cx, h, cz]} color="#2a313d" />
+      {racks.map((r, i) => <ServerRack key={i} position={[r[0], 0, r[1]]} />)}
+      <pointLight position={[cx, h - 0.3, cz]} intensity={0.7} color="#22d3ee" distance={9} />
+      <Html position={[cx, h + 0.45, cz + d / 2]} center distanceFactor={13} pointerEvents="none">
+        <div style={LABEL_DC}>🖥️ DATACENTER</div>
+      </Html>
+    </group>
+  );
+}
+
+// ---- SALA PRIVADA do usuário (porta que abre ao chegar perto) --------------
+const PRIV = { cx: -8, cz: 4.2, w: 5, d: 5, h: 2.3, gap: 1.7 };
+function PrivateRoom({ playerRef }) {
+  const door = useRef();
+  const { cx, cz, w, d, h, gap } = PRIV;
+  const ex = cx + w / 2;            // parede leste (vão da porta)
+  const seg = (d - gap) / 2;        // tamanho de cada segmento ao lado do vão
+
+  useFrame((state, delta) => {
+    const p = playerRef.current;
+    const dist = Math.hypot(p.x - ex, p.z - cz);
+    const target = dist < 2.4 ? -Math.PI * 0.58 : 0;  // abre ao chegar perto, fecha ao sair
+    if (door.current) door.current.rotation.y += (target - door.current.rotation.y) * Math.min(1, delta * 6);
+  });
+
+  return (
+    <group>
+      {/* tapete da sala */}
+      <Box args={[w - 0.3, 0.03, d - 0.3]} position={[cx, 0.04, cz]} color="#cdbbe6" />
+      {/* paredes: oeste, norte, sul */}
+      <Box args={[0.18, h, d]} position={[cx - w / 2, h / 2, cz]} color={C.wall} />
+      <Box args={[w, h, 0.18]} position={[cx, h / 2, cz - d / 2]} color={C.wall} />
+      <Box args={[w, h, 0.18]} position={[cx, h / 2, cz + d / 2]} color={C.wall} />
+      {/* parede leste com vão central */}
+      <Box args={[0.18, h, seg]} position={[ex, h / 2, cz - (gap / 2 + seg / 2)]} color={C.wall} />
+      <Box args={[0.18, h, seg]} position={[ex, h / 2, cz + (gap / 2 + seg / 2)]} color={C.wall} />
+      <Box args={[0.22, 0.22, gap]} position={[ex, h - 0.1, cz]} color={C.wallTop} />
+      {/* porta (dobradiça na borda norte do vão; gira pra abrir) */}
+      <group ref={door} position={[ex, 0, cz - gap / 2]}>
+        <Box args={[0.12, h - 0.22, gap]} position={[0, (h - 0.22) / 2, gap / 2]} color={C.wood} />
+        <Box args={[0.16, 0.12, 0.12]} position={[0.06, 1.05, gap * 0.85]} color="#e7d6a6" />
+      </group>
+      {/* mobília da sua sala */}
+      <Desk position={[cx - 0.6, 0, cz - 1.1]} rotation={[0, Math.PI / 2, 0]} />
+      <Plant position={[cx - w / 2 + 0.6, 0, cz + d / 2 - 0.7]} />
+      <Html position={[cx, h + 0.5, cz]} center distanceFactor={12} pointerEvents="none">
+        <div style={LABEL_PRIV}>🔒 Sua sala</div>
+      </Html>
+    </group>
+  );
+}
+
+// ---- VOCÊ (personagem controlável por WASD / setas) ------------------------
+const PLAYER_COLOR = '#38bdf8';
+function Player({ playerRef }) {
+  const g = useRef();
+  const legL = useRef(), legR = useRef(), armL = useRef(), armR = useRef();
+  const keys = useRef({});
+
+  useEffect(() => {
+    const isTyping = () => {
+      const el = document.activeElement;
+      return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    };
+    const dn = (e) => { if (!isTyping()) keys.current[e.key.toLowerCase()] = true; };
+    const up = (e) => { keys.current[e.key.toLowerCase()] = false; };
+    window.addEventListener('keydown', dn);
+    window.addEventListener('keyup', up);
+    return () => { window.removeEventListener('keydown', dn); window.removeEventListener('keyup', up); };
+  }, []);
+
+  useFrame((state, delta) => {
+    const dt = Math.min(delta, 0.05);
+    const k = keys.current;
+    let dx = 0, dz = 0;
+    if (k['w'] || k['arrowup']) dz -= 1;
+    if (k['s'] || k['arrowdown']) dz += 1;
+    if (k['a'] || k['arrowleft']) dx -= 1;
+    if (k['d'] || k['arrowright']) dx += 1;
+    const moving = dx !== 0 || dz !== 0;
+    const p = playerRef.current;
+    if (moving) {
+      const len = Math.hypot(dx, dz);
+      const speed = 4.4;
+      p.x = Math.max(-FW / 2 + 1, Math.min(FW / 2 - 1, p.x + (dx / len) * speed * dt));
+      p.z = Math.max(-FD / 2 + 1, Math.min(FD / 2 - 1, p.z + (dz / len) * speed * dt));
+      p.face = Math.atan2(dx, dz);
+    }
+    const t = state.clock.elapsedTime;
+    if (g.current) {
+      g.current.position.x = p.x; g.current.position.z = p.z;
+      g.current.position.y = moving ? Math.abs(Math.sin(t * 10)) * 0.05 : 0;
+      if (moving) {
+        let diff = p.face - g.current.rotation.y;
+        while (diff > Math.PI) diff -= 2 * Math.PI;
+        while (diff < -Math.PI) diff += 2 * Math.PI;
+        g.current.rotation.y += diff * Math.min(1, dt * 12);
+      }
+    }
+    const swing = moving ? Math.sin(t * 10) * 0.5 : 0;
+    if (legL.current) legL.current.rotation.x = swing;
+    if (legR.current) legR.current.rotation.x = -swing;
+    if (armL.current) armL.current.rotation.x = -swing * 0.8;
+    if (armR.current) armR.current.rotation.x = swing * 0.8;
+  });
+
+  return (
+    <group ref={g} position={[playerRef.current.x, 0, playerRef.current.z]}>
+      <VoxelCharacter color={PLAYER_COLOR} legL={legL} legR={legR} armL={armL} armR={armR} />
+      <mesh position={[0, 0.04, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.55, 0.72, 32]} />
+        <meshBasicMaterial color="#38bdf8" transparent opacity={0.85} />
+      </mesh>
+      <Html position={[0, 2.3, 0]} center distanceFactor={11} pointerEvents="none">
+        <div style={LABEL_YOU}>VOCÊ</div>
+      </Html>
+    </group>
+  );
+}
+
+// ---- LOGO na parede do fundo (quadro com textura /logo.png) ----------------
+function LogoFrame() {
+  const tex = useTexture('/logo.png');
+  return (
+    <group position={[3.5, 2.1, -FD / 2 + 0.25]}>
+      <Box args={[3.5, 1.75, 0.08]} position={[0, 0, -0.05]} color="#241d16" />
+      <mesh>
+        <planeGeometry args={[3.2, 1.5]} />
+        <meshBasicMaterial map={tex} transparent toneMapped={false} />
+      </mesh>
+    </group>
+  );
+}
+
+// estilos das plaquinhas flutuantes
+const LABEL_BASE = {
+  whiteSpace: 'nowrap', color: '#fff', padding: '3px 9px', borderRadius: 7,
+  fontSize: 13, fontWeight: 700, fontFamily: 'ui-sans-serif, system-ui',
+  border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 2px 6px rgba(0,0,0,0.4)'
+};
+const LABEL_YOU = { ...LABEL_BASE, background: 'linear-gradient(90deg,#0284c7,#0ea5e9)' };
+const LABEL_PRIV = { ...LABEL_BASE, background: 'rgba(76,29,149,0.92)' };
+const LABEL_DC = { ...LABEL_BASE, background: 'rgba(8,47,73,0.92)' };
+
+// área onde os agentes circulam (evita a sala privada à esquerda, o datacenter
+// ao fundo-direita e a sala de reunião do fundo)
+const WALK = { minX: -4.5, maxX: 7.5, minZ: -1, maxZ: 6 };
 const rand = (a, b) => a + Math.random() * (b - a);
 const randTarget = () => ({ x: rand(WALK.minX, WALK.maxX), z: rand(WALK.minZ, WALK.maxZ) });
 
@@ -289,6 +447,8 @@ function layoutFor(n) {
 
 function Scene({ agents, status, selectedKey, onSelect }) {
   const slots = useMemo(() => layoutFor(agents.length), [agents.length]);
+  // posição do "você" compartilhada entre Player (escreve) e a porta (lê)
+  const playerRef = useRef({ x: PRIV.cx, z: PRIV.cz, face: 0 });
   const now = Date.now();
   return (
     <>
@@ -298,6 +458,10 @@ function Scene({ agents, status, selectedKey, onSelect }) {
 
       <Room />
       <Furniture />
+      <Datacenter />
+      <PrivateRoom playerRef={playerRef} />
+      <Player playerRef={playerRef} />
+      <Suspense fallback={null}><LogoFrame /></Suspense>
 
       {/* mesas atrás dos agentes */}
       {slots.map((s, i) => (
@@ -336,8 +500,9 @@ export default function Office() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted">
-          Arraste pra <strong className="text-body">girar</strong> · role pra <strong className="text-body">zoom</strong> ·
-          clique num agente pra <strong className="text-body">conversar</strong>.
+          <strong className="text-body">WASD/setas</strong> movem <strong className="text-sky-400">você</strong> ·
+          arraste pra <strong className="text-body">girar</strong> · role pra <strong className="text-body">zoom</strong> ·
+          clique num agente pra <strong className="text-body">conversar</strong> · entre na sua sala que a porta abre.
         </p>
         <span className="flex items-center gap-1.5 rounded-full border border-edge bg-surface px-3 py-1 text-xs text-muted">
           {agents.length} agentes no escritório
