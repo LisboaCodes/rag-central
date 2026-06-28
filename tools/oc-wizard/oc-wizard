@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# oc-wizard — configurador por opções para agentes do OpenClaw.
+# Tudo já pré-configurado: você escolhe nas listas, ele salva, reinicia e testa.
+# Requer: whiptail, python3, openclaw, e a engine oc-wizard-engine (no mesmo PATH).
+set -euo pipefail
+
+ENGINE="$(dirname "$0")/oc-wizard-engine"
+[ -x "$ENGINE" ] || ENGINE="oc-wizard-engine"
+
+command -v whiptail >/dev/null || { echo "whiptail não encontrado (apt install whiptail)"; exit 1; }
+
+CTX_JSON=""
+load_ctx() { CTX_JSON="$("$ENGINE" ctx)"; }
+
+# jq não está instalado -> usamos python pra extrair campos do CTX_JSON.
+pyq() { python3 -c "import json,sys; d=json.loads(sys.stdin.read()); $1" <<<"$CTX_JSON"; }
+
+msg()   { whiptail --title "OpenClaw" --msgbox "$1" 16 78; }
+yesno() { whiptail --title "OpenClaw" --yesno "$1" 14 78; }
+
+# menu <title> <prompt> <tag1> <item1> ...  -> ecoa a tag escolhida (vazio se cancelar)
+menu() {
+  local title="$1" prompt="$2"; shift 2
+  whiptail --title "$title" --menu "$prompt" 22 86 12 "$@" 3>&1 1>&2 2>&3 || true
+}
+
+input() { whiptail --title "$1" --inputbox "$2" 12 78 "${3:-}" 3>&1 1>&2 2>&3 || true; }
+password() { whiptail --title "$1" --passwordbox "$2" 12 78 3>&1 1>&2 2>&3 || true; }
+
+# ---------- escolher modelo ----------
+pick_model() {
+  local args=() id
+  while IFS=$'\t' read -r id _; do
+    [ -n "$id" ] && args+=("$id" "")
+  done < <(pyq "
+for m in d['models']:
+    print(m['id']+'\t'+('*' if m.get('configured') else ''))" )
+  menu "Modelo" "Escolha o modelo do agente:" "${args[@]}"
+}
+
+# ---------- escolher canal ----------
+pick_channel() {
+  local args=("none" "(sem canal)") id label
+  while IFS=$'\t' read -r id label; do
+    [ -n "$id" ] && args+=("$id" "$label")
+  done < <(pyq "
+for c in d['channels']:
+    print(c['id']+'\t'+c['label'])")
+  menu "Canal Discord" "Vincular o agente a qual canal?" "${args[@]}"
+}
+
+pick_exec() {
+  menu "Aprovação de exec" "Quão livre o agente roda comandos?" \
+    "on-miss" "Pergunta só fora do allowlist (recomendado)" \
+    "on" "Sempre pergunta antes de exec" \
+    "off" "Nunca pergunta (cuidado)"
+}
+
+# ---------- restart + probe ----------
+finish() {
+  if yesno "Salvo com sucesso.\n\nReiniciar o gateway agora pra aplicar e testar?"; then
+    { "$ENGINE" restart || true; } >/tmp/oc-wizard-restart.log 2>&1
+    sleep 4
+    local probe; probe="$("$ENGINE" probe "${1:-}" 2>/dev/null || true)"
+    msg "Gateway reiniciado.\n\nProbe:\n${probe:-(sem saída)}"
+  else
+    msg "Salvo. Lembre de rodar:  openclaw gateway restart"
+  fi
+}
+
+# ---------- fluxo: editar agente existente ----------
+flow_edit() {
+  local args=() id name model
+  while IFS=$'\t' read -r id name model; do
+    args+=("$id" "$name — $model")
+  done < <(pyq "
+for a in d['agents']:
+    print((a['id'] or '')+'\t'+(a.get('name') or '')+'\t'+(a.get('model') or '?'))")
+  local sel; sel="$(menu "Editar agente" "Qual agente reconfigurar?" "${args[@]}")"
+  [ -z "$sel" ] && return
+
+  local model chan exec
+  model="$(pick_model)";  [ -z "$model" ] && return
+  chan="$(pick_channel)"; [ -z "$chan" ] && return
+  exec="$(pick_exec)";    [ -z "$exec" ] && return
+  local emoji; emoji="$(input "Identidade" "Emoji do agente (enter pra pular):" "")"
+
+  yesno "Aplicar em '$sel'?\n\nModelo: $model\nCanal: $chan\nExec ask: $exec\nEmoji: ${emoji:-(inalterado)}" || return
+  local out
+  out="$("$ENGINE" apply-agent --id "$sel" --model "$model" --bind "$chan" \
+        --exec-ask "$exec" ${emoji:+--emoji "$emoji"})" || { msg "Erro:\n$out"; return; }
+  finish "$model"
+}
+
+# ---------- fluxo: criar agente novo ----------
+flow_new() {
+  local name; name="$(input "Novo agente" "Nome do agente:" "")"; [ -z "$name" ] && return
+  local model chan exec emoji
+  model="$(pick_model)";  [ -z "$model" ] && return
+  chan="$(pick_channel)"; [ -z "$chan" ] && return
+  exec="$(pick_exec)";    [ -z "$exec" ] && return
+  emoji="$(input "Identidade" "Emoji do agente (enter pra pular):" "🤖")"
+
+  yesno "Criar agente?\n\nNome: $name\nModelo: $model\nCanal: $chan\nExec ask: $exec\nEmoji: $emoji" || return
+  local out
+  out="$("$ENGINE" apply-agent --name "$name" --model "$model" --bind "$chan" \
+        --exec-ask "$exec" ${emoji:+--emoji "$emoji"})" || { msg "Erro:\n$out"; return; }
+  finish "$model"
+}
+
+# ---------- fluxo: adicionar provider de IA novo ----------
+flow_provider() {
+  local args=() k label
+  while IFS=$'\t' read -r k label; do
+    args+=("$k" "$label")
+  done < <(pyq "
+for k,v in d['presets'].items():
+    print(k+'\t'+v['label'])")
+  local sel; sel="$(menu "Novo provedor de IA" "Escolha o tipo de API/IA:" "${args[@]}")"
+  [ -z "$sel" ] && return
+
+  # puxa defaults do preset
+  local base api needs ex_model ex_name
+  base="$(pyq "print(d['presets']['$sel']['baseUrl'])")"
+  api="$(pyq "print(d['presets']['$sel']['api'])")"
+  needs="$(pyq "print('1' if d['presets']['$sel']['needs_key'] else '0')")"
+  ex_model="$(pyq "print(d['presets']['$sel']['example_model'])")"
+  ex_name="$(pyq "print(d['presets']['$sel']['example_name'])")"
+
+  local pname
+  pname="$(input "Provider" "ID do provider (minúsculo, sem espaço):" "$sel")"
+  [ -z "$pname" ] && return
+  base="$(input "Endpoint" "Base URL (OpenAI-compatível):" "$base")"
+  [ -z "$base" ] && return
+  local model_id model_name
+  model_id="$(input "Modelo" "ID do modelo no provider:" "$ex_model")"
+  [ -z "$model_id" ] && return
+  model_name="$(input "Modelo" "Nome amigável do modelo:" "${ex_name:-$model_id}")"
+
+  local key=""
+  if [ "$needs" = "1" ]; then
+    key="$(password "API key" "Cole a API key do $pname (não aparece na tela):")"
+    [ -z "$key" ] && { msg "Sem key — cancelado."; return; }
+  fi
+
+  yesno "Registrar provider?\n\nProvider: $pname\nEndpoint: $base\nModelo: $pname/$model_id\nKey: $([ "$needs" = 1 ] && echo 'sim' || echo 'não precisa')" || return
+
+  local out
+  if [ "$needs" = "1" ]; then
+    out="$(printf '%s' "$key" | "$ENGINE" add-provider --name "$pname" --base-url "$base" \
+          --api "$api" --model-id "$model_id" --model-name "$model_name" --needs-key)" \
+          || { msg "Erro:\n$out"; return; }
+  else
+    out="$("$ENGINE" add-provider --name "$pname" --base-url "$base" --api "$api" \
+          --model-id "$model_id" --model-name "$model_name" </dev/null)" \
+          || { msg "Erro:\n$out"; return; }
+  fi
+  finish "$pname/$model_id"
+}
+
+# ---------- menu principal ----------
+main() {
+  while true; do
+    load_ctx
+    local choice
+    choice="$(menu "OpenClaw — Configurador de Agentes" \
+      "Tudo por opções. Escolha → salva → restart → funciona." \
+      "edit"     "Editar um agente existente" \
+      "new"      "Criar um agente novo" \
+      "provider" "Adicionar provedor de IA novo (z.ai, NVIDIA, HF, local...)" \
+      "probe"    "Testar agora (probe de auth ao vivo)" \
+      "quit"     "Sair")"
+    case "$choice" in
+      edit) flow_edit ;;
+      new) flow_new ;;
+      provider) flow_provider ;;
+      probe) msg "$("$ENGINE" probe 2>/dev/null || echo '(falhou)')" ;;
+      quit|"") clear; exit 0 ;;
+    esac
+  done
+}
+main
