@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Send, FileText, Brain, Wrench, Paperclip, X } from 'lucide-react';
 import { useAgents, hexOf } from '../lib/AgentsContext.jsx';
-import { API_BASE } from '../lib/api.js';
+import { API_BASE, getToken } from '../lib/api.js';
 import Markdown from './Markdown.jsx';
 
 const readDataUrl = (file) => new Promise((resolve) => {
@@ -80,9 +80,13 @@ export default function AgentChat({ agent, onReply, className = '' }) {
     const cur = { agent: null, text: '' }; // texto acumulado do agente atual (p/ onReply)
 
     try {
+      const token = getToken();
       const resp = await fetch(`${API_BASE}/chat/stream`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
         body: JSON.stringify({ agent: agent.key, message: text, conversationId, images, files })
       });
       if (!resp.ok || !resp.body) throw new Error(`Falha ao iniciar streaming (HTTP ${resp.status})`);
