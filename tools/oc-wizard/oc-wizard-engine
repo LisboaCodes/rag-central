@@ -1,0 +1,416 @@
+#!/usr/bin/env python3
+"""
+oc-wizard-engine — backend de estado para o configurador de agentes do OpenClaw.
+
+Faz todas as mudanças no ~/.openclaw/openclaw.json (com backup automático),
+grava API keys, registra providers novos, reinicia o gateway e roda probes.
+A UI (oc-wizard, em whiptail) chama estes subcomandos.
+
+Subcomandos:
+  ctx                      -> imprime JSON {models,channels,agents,providers,presets}
+  apply-agent              -> cria/edita um agente
+  add-provider             -> registra um provider de IA novo (+ key via stdin)
+  restart                  -> reinicia o gateway (systemd)
+  probe [MODEL]            -> probe ao vivo (todos ou um modelo)
+  selftest                 -> valida a lógica num config temporário (não toca no real)
+"""
+import argparse, json, os, shutil, subprocess, sys, time
+
+CONFIG = os.path.expanduser("~/.openclaw/openclaw.json")
+KEYFILE = os.path.expanduser("~/.openclaw/agents/main/agent/auth-profiles.json")
+
+# Presets de provedores OpenAI-compatíveis. baseUrl é editável na UI.
+# 'needs_key': se o provider exige API key (Ollama local não exige).
+PRESETS = {
+    "zai": {
+        "label": "Z.ai (GLM)",
+        "baseUrl": "https://api.z.ai/api/paas/v4",
+        "api": "openai-completions",
+        "needs_key": True,
+        "example_model": "glm-4.6",
+        "example_name": "GLM 4.6",
+    },
+    "nvidia": {
+        "label": "NVIDIA build.nvidia.com (NIM)",
+        "baseUrl": "https://integrate.api.nvidia.com/v1",
+        "api": "openai-completions",
+        "needs_key": True,
+        "example_model": "moonshotai/kimi-k2-instruct",
+        "example_name": "Kimi K2 (via NVIDIA)",
+    },
+    "huggingface": {
+        "label": "HuggingFace (Inference Router)",
+        "baseUrl": "https://router.huggingface.co/v1",
+        "api": "openai-completions",
+        "needs_key": True,
+        "example_model": "meta-llama/Llama-3.3-70B-Instruct",
+        "example_name": "Llama 3.3 70B",
+    },
+    "moonshot": {
+        "label": "Moonshot (Kimi)",
+        "baseUrl": "https://api.moonshot.ai/v1",
+        "api": "openai-completions",
+        "needs_key": True,
+        "example_model": "kimi-k2",
+        "example_name": "Kimi K2",
+    },
+    "ollama-new": {
+        "label": "Ollama local (sem key)",
+        "baseUrl": "http://127.0.0.1:11434/v1",
+        "api": "openai-completions",
+        "needs_key": False,
+        "example_model": "qwen2.5:7b",
+        "example_name": "Qwen2.5 7B",
+    },
+    "custom": {
+        "label": "Custom (endpoint OpenAI-compatível)",
+        "baseUrl": "",
+        "api": "openai-completions",
+        "needs_key": True,
+        "example_model": "",
+        "example_name": "",
+    },
+}
+
+EXEC_ASK_CHOICES = ["on-miss", "on", "off"]
+
+
+def load():
+    with open(CONFIG) as f:
+        return json.load(f)
+
+
+def backup_and_save(cfg, tag="wizard"):
+    ts = time.strftime("%Y-%m-%d-%H%M%S")
+    bak = f"{CONFIG}.bak.{tag}-{ts}"
+    shutil.copy2(CONFIG, bak)
+    tmp = CONFIG + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, CONFIG)
+    return bak
+
+
+def cmd_ctx(_args):
+    cfg = load()
+    # modelos: união dos configurados (mais úteis primeiro). Usa CLI se possível.
+    models = []
+    try:
+        out = subprocess.run(["openclaw", "models", "list"], capture_output=True, text=True, timeout=30)
+        for line in out.stdout.splitlines():
+            line = line.strip()
+            if "/" in line and not line.lower().startswith("model"):
+                mid = line.split()[0]
+                tags = line.split()[-1] if "configured" in line or "alias" in line else ""
+                models.append({"id": mid, "configured": "configured" in tags})
+    except Exception:
+        pass
+    if not models:  # fallback: o que está no config
+        for mid in cfg.get("agents", {}).get("defaults", {}).get("models", {}):
+            models.append({"id": mid, "configured": True})
+    channels = []
+    try:
+        out = subprocess.run(["openclaw", "channels", "list"], capture_output=True, text=True, timeout=30)
+        for line in out.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("- Discord "):
+                name = line[len("- Discord "):].split(":")[0].strip()
+                channels.append({"id": f"discord:{name}", "label": f"Discord {name}"})
+    except Exception:
+        pass
+    agents = [
+        {"id": a.get("id"), "name": a.get("name"), "model": a.get("model"),
+         "workspace": a.get("workspace")}
+        for a in cfg.get("agents", {}).get("list", [])
+    ]
+    providers = list(cfg.get("models", {}).get("providers", {}).keys())
+    print(json.dumps({
+        "models": models, "channels": channels, "agents": agents,
+        "providers": providers, "presets": PRESETS,
+        "exec_ask_choices": EXEC_ASK_CHOICES,
+    }, ensure_ascii=False))
+
+
+def set_binding(cfg, agent_id, bind):
+    """Vincula agent_id a um canal. bind no formato 'channel:accountId'.
+
+    Bindings vivem no array top-level cfg['bindings'] como
+    {agentId, match:{channel, accountId}}. Semântica de reatribuição limpa:
+    - libera esse channel:accountId de qualquer outro agente que o tivesse;
+    - remove binding anterior deste agente no mesmo canal (sem duplicar).
+    """
+    if ":" in bind:
+        channel, account = bind.split(":", 1)
+    else:
+        channel, account = bind, "default"
+    binds = cfg.setdefault("bindings", [])
+    kept = []
+    for b in binds:
+        m = b.get("match", {})
+        same_slot = m.get("channel") == channel and m.get("accountId") == account
+        same_agent_channel = b.get("agentId") == agent_id and m.get("channel") == channel
+        if same_slot or same_agent_channel:
+            continue  # descarta: vamos recriar com o dono novo
+        kept.append(b)
+    kept.append({"agentId": agent_id, "match": {"channel": channel, "accountId": account}})
+    cfg["bindings"] = kept
+
+
+def ensure_runtime(cfg, model):
+    """Garante o agentRuntime certo em agents.defaults.models para o modelo."""
+    dm = cfg.setdefault("agents", {}).setdefault("defaults", {}).setdefault("models", {})
+    prov = model.split("/", 1)[0]
+    entry = dm.setdefault(model, {})
+    if prov in ("anthropic", "claude-cli"):
+        entry.setdefault("agentRuntime", {"id": "claude-cli"})
+    return entry
+
+
+def cmd_apply_agent(args):
+    cfg = load()
+    lst = cfg.setdefault("agents", {}).setdefault("list", [])
+    agent = None
+    if args.id:
+        for a in lst:
+            if a.get("id") == args.id:
+                agent = a
+                break
+        if agent is None:
+            print(f"erro: agente '{args.id}' não encontrado", file=sys.stderr)
+            return 2
+    else:
+        # novo
+        if not args.name:
+            print("erro: --name é obrigatório para agente novo", file=sys.stderr)
+            return 2
+        new_id = args.new_id or args.name.lower().replace(" ", "-")
+        if any(a.get("id") == new_id for a in lst):
+            print(f"erro: id '{new_id}' já existe", file=sys.stderr)
+            return 2
+        agent = {"id": new_id, "name": args.name,
+                 "workspace": f"~/.openclaw/workspace-{new_id}"}
+        lst.append(agent)
+
+    if args.name:
+        agent["name"] = args.name
+    if args.model:
+        agent["model"] = args.model
+        ensure_runtime(cfg, args.model)
+    if args.exec_ask:
+        agent.setdefault("tools", {}).setdefault("exec", {})["ask"] = args.exec_ask
+    if args.emoji:
+        agent["emoji"] = args.emoji
+    if args.bind and args.bind != "none":
+        set_binding(cfg, agent["id"], args.bind)
+
+    bak = backup_and_save(cfg)
+    print(json.dumps({"ok": True, "agent": agent, "backup": bak}, ensure_ascii=False))
+    return 0
+
+
+def cmd_add_provider(args):
+    cfg = load()
+    name = args.name
+    providers = cfg.setdefault("models", {}).setdefault("providers", {})
+    model_entry = {
+        "id": args.model_id,
+        "name": args.model_name or args.model_id,
+        "input": ["text"],
+        "contextWindow": args.context or 131072,
+        "maxTokens": args.max_tokens or 8192,
+        "api": args.api,
+        "compat": {"supportsUsageInStreaming": True, "maxTokensField": "max_tokens"},
+    }
+    prov = providers.setdefault(name, {"baseUrl": args.base_url, "api": args.api, "models": []})
+    prov["baseUrl"] = args.base_url
+    prov["api"] = args.api
+    # adiciona/atualiza o modelo
+    prov["models"] = [m for m in prov.get("models", []) if m.get("id") != args.model_id]
+    prov["models"].append(model_entry)
+
+    # auth profile (se precisa de key)
+    if args.needs_key:
+        cfg.setdefault("auth", {}).setdefault("profiles", {})[f"{name}:default"] = {
+            "provider": name, "mode": "api_key"
+        }
+
+    bak = backup_and_save(cfg)
+
+    # grava a key (stdin), independente do paste-api-key pra não depender de validação de plugin
+    key_written = False
+    if args.needs_key:
+        key = sys.stdin.read().strip()
+        if key:
+            try:
+                kf = {}
+                if os.path.exists(KEYFILE):
+                    with open(KEYFILE) as f:
+                        kf = json.load(f)
+                kf.setdefault("version", 1)
+                profs = kf.setdefault("profiles", {})
+                profs[f"{name}:default"] = {"type": "api_key", "provider": name, "key": key}
+                tmp = KEYFILE + ".tmp"
+                with open(tmp, "w") as f:
+                    json.dump(kf, f, indent=2, ensure_ascii=False)
+                os.chmod(tmp, 0o600)
+                os.replace(tmp, KEYFILE)
+                key_written = True
+            except Exception as e:
+                print(f"aviso: falha ao gravar key direto: {e}", file=sys.stderr)
+
+    print(json.dumps({
+        "ok": True, "provider": name, "model": f"{name}/{args.model_id}",
+        "key_written": key_written, "backup": bak
+    }, ensure_ascii=False))
+    return 0
+
+
+def cmd_restart(_args):
+    r = subprocess.run(["openclaw", "gateway", "restart"], capture_output=True, text=True, timeout=90)
+    sys.stdout.write(r.stdout)
+    sys.stderr.write(r.stderr)
+    return r.returncode
+
+
+def cmd_probe(args):
+    cmd = ["openclaw", "models", "status", "--probe"]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    out = r.stdout
+    if args.model:
+        lines = [l for l in out.splitlines() if args.model in l or "Status" in l or "Model" in l]
+        out = "\n".join(lines)
+    sys.stdout.write(out)
+    return 0
+
+
+def cmd_selftest(_args):
+    """Valida criar agente / editar / add-provider num config temporário."""
+    global CONFIG, KEYFILE
+    import tempfile
+    d = tempfile.mkdtemp(prefix="ocwz-")
+    CONFIG = os.path.join(d, "openclaw.json")
+    KEYFILE = os.path.join(d, "auth-profiles.json")
+    seed = {
+        "agents": {"defaults": {"models": {
+            "anthropic/claude-opus-4-8": {"agentRuntime": {"id": "claude-cli"}},
+        }}, "list": [
+            {"id": "main", "name": "Mel", "model": "anthropic/claude-sonnet-4-6",
+             "workspace": "~/.openclaw/workspace"},
+        ]},
+        "auth": {"profiles": {"deepseek:default": {"provider": "deepseek", "mode": "api_key"}}},
+        "models": {"providers": {"deepseek": {"baseUrl": "https://api.deepseek.com",
+                   "api": "openai-completions", "models": [{"id": "deepseek-v4-flash"}]}}},
+    }
+    with open(CONFIG, "w") as f:
+        json.dump(seed, f)
+    with open(KEYFILE, "w") as f:
+        json.dump({"version": 1, "profiles": {}}, f)
+
+    ok = True
+
+    def check(label, cond):
+        nonlocal ok
+        ok = ok and cond
+        print(f"  [{'PASS' if cond else 'FAIL'}] {label}")
+
+    # 1) editar agente existente: troca modelo p/ opus -> deve injetar runtime
+    class A: pass
+    a = A(); a.id = "main"; a.new_id = None; a.name = None
+    a.model = "anthropic/claude-opus-4-8"; a.exec_ask = "on-miss"
+    a.emoji = None; a.bind = "discord:default"
+    cmd_apply_agent(a)
+    cfg = load()
+    m = next(x for x in cfg["agents"]["list"] if x["id"] == "main")
+    check("editar: modelo trocado", m["model"] == "anthropic/claude-opus-4-8")
+    check("editar: exec.ask aplicado", m["tools"]["exec"]["ask"] == "on-miss")
+    bd = cfg.get("bindings", [])
+    check("editar: binding top-level criado",
+          any(b["agentId"] == "main" and b["match"] == {"channel": "discord", "accountId": "default"}
+              for b in bd))
+    check("editar: nao gravou bindings inline no agente", "bindings" not in m)
+
+    # 1b) reatribuir o MESMO canal pra outro agente -> libera do main, sem duplicar
+    a2 = A(); a2.id = None; a2.new_id = None; a2.name = "Bob"
+    a2.model = None; a2.exec_ask = None; a2.emoji = None; a2.bind = "discord:default"
+    cmd_apply_agent(a2)
+    cfg = load()
+    slot = [b for b in cfg["bindings"]
+            if b["match"] == {"channel": "discord", "accountId": "default"}]
+    check("reatribuir: canal discord:default tem 1 dono só", len(slot) == 1)
+    check("reatribuir: novo dono é 'bob'", slot and slot[0]["agentId"] == "bob")
+
+    # 2) criar agente novo com modelo openai -> sem runtime claude-cli
+    b = A(); b.id = None; b.new_id = None; b.name = "Tester"
+    b.model = "openai/gpt-5.5"; b.exec_ask = "off"; b.emoji = "🤖"; b.bind = "none"
+    cmd_apply_agent(b)
+    cfg = load()
+    t = next((x for x in cfg["agents"]["list"] if x["id"] == "tester"), None)
+    check("criar: agente novo existe", t is not None)
+    check("criar: id derivado do nome", t and t["id"] == "tester")
+    check("criar: workspace auto", t and "workspace-tester" in t["workspace"])
+    check("criar: openai sem runtime claude-cli",
+          "agentRuntime" not in cfg["agents"]["defaults"]["models"].get("openai/gpt-5.5", {}))
+
+    # 3) add-provider z.ai com key via stdin (simulada)
+    p = A(); p.name = "zai"; p.base_url = "https://api.z.ai/api/paas/v4"
+    p.api = "openai-completions"; p.model_id = "glm-4.6"; p.model_name = "GLM 4.6"
+    p.context = 131072; p.max_tokens = 8192; p.needs_key = True
+    import io
+    old = sys.stdin
+    sys.stdin = io.StringIO("sk-test-fake-key-123")
+    try:
+        cmd_add_provider(p)
+    finally:
+        sys.stdin = old
+    cfg = load()
+    check("provider: zai registrado", "zai" in cfg["models"]["providers"])
+    check("provider: baseUrl certo",
+          cfg["models"]["providers"]["zai"]["baseUrl"] == "https://api.z.ai/api/paas/v4")
+    check("provider: modelo glm-4.6 presente",
+          any(mm["id"] == "glm-4.6" for mm in cfg["models"]["providers"]["zai"]["models"]))
+    check("provider: auth profile criado",
+          cfg["auth"]["profiles"].get("zai:default", {}).get("mode") == "api_key")
+    kf = json.load(open(KEYFILE))
+    check("provider: key gravada no keyfile",
+          kf["profiles"].get("zai:default", {}).get("key") == "sk-test-fake-key-123")
+
+    # 4) backups foram criados
+    baks = [f for f in os.listdir(d) if ".bak.wizard-" in f]
+    check("backup: pelo menos 1 backup criado", len(baks) >= 1)
+
+    shutil.rmtree(d, ignore_errors=True)
+    print(f"\nSELFTEST: {'TODOS PASSARAM ✅' if ok else 'FALHOU ❌'}")
+    return 0 if ok else 1
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("ctx")
+    sp = sub.add_parser("apply-agent")
+    sp.add_argument("--id"); sp.add_argument("--new-id", dest="new_id")
+    sp.add_argument("--name"); sp.add_argument("--model")
+    sp.add_argument("--exec-ask", dest="exec_ask", choices=EXEC_ASK_CHOICES)
+    sp.add_argument("--emoji"); sp.add_argument("--bind")
+    sp = sub.add_parser("add-provider")
+    sp.add_argument("--name", required=True)
+    sp.add_argument("--base-url", dest="base_url", required=True)
+    sp.add_argument("--api", default="openai-completions")
+    sp.add_argument("--model-id", dest="model_id", required=True)
+    sp.add_argument("--model-name", dest="model_name", default="")
+    sp.add_argument("--context", type=int, default=0)
+    sp.add_argument("--max-tokens", dest="max_tokens", type=int, default=0)
+    sp.add_argument("--needs-key", dest="needs_key", action="store_true")
+    sub.add_parser("restart")
+    sp = sub.add_parser("probe"); sp.add_argument("model", nargs="?")
+    sub.add_parser("selftest")
+    args = ap.parse_args()
+    fn = {
+        "ctx": cmd_ctx, "apply-agent": cmd_apply_agent, "add-provider": cmd_add_provider,
+        "restart": cmd_restart, "probe": cmd_probe, "selftest": cmd_selftest,
+    }[args.cmd]
+    sys.exit(fn(args) or 0)
+
+
+if __name__ == "__main__":
+    main()
