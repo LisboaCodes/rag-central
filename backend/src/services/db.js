@@ -39,6 +39,8 @@ export async function initSchema() {
       WITH (m = 16, ef_construction = 64)
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS documents_project_idx ON documents (project)');
+  // índice full-text (português) p/ a busca híbrida por palavra-chave
+  await pool.query(`CREATE INDEX IF NOT EXISTS documents_fts_idx ON documents USING gin (to_tsvector('portuguese', chunk_text))`);
 
   // --- memória de conversas (o "cérebro") -------------------------------
   // Uma conversa é uma thread. agent = nome do agente (MEL…) ou 'GROUP'
@@ -75,6 +77,8 @@ export async function initSchema() {
       ON messages USING hnsw (embedding vector_cosine_ops)
       WITH (m = 16, ef_construction = 64)
   `);
+  // índice full-text (português) p/ a busca híbrida na memória coletiva
+  await pool.query(`CREATE INDEX IF NOT EXISTS messages_fts_idx ON messages USING gin (to_tsvector('portuguese', content))`);
 
   // --- agentes (editáveis/criáveis) -------------------------------------
   await pool.query(`
@@ -399,6 +403,30 @@ export async function searchSimilar({ embedding, model, project, topK = 5, match
   return res.rows.map((r) => ({ ...r, similarity: Number(r.similarity) }));
 }
 
+// Busca por PALAVRA-CHAVE (full-text português) em documentos. Complementa a
+// busca vetorial na busca híbrida: pega termos exatos, nomes próprios, siglas
+// e IDs que o embedding sozinho tende a perder. websearch_to_tsquery aceita
+// linguagem natural (aspas, -negação) e nunca lança em texto solto.
+export async function searchDocumentsKeyword({ query, model, project, topK = 20, matchModel = true }) {
+  if (!query || !query.trim()) return [];
+  const params = [query];
+  const where = [`to_tsvector('portuguese', chunk_text) @@ websearch_to_tsquery('portuguese', $1)`];
+  if (matchModel && model) { params.push(model); where.push(`embedding_model = $${params.length}`); }
+  if (project) { params.push(project); where.push(`project = $${params.length}`); }
+  params.push(topK);
+  const res = await pool.query(
+    `SELECT id, project, source_path, chunk_index, chunk_text, metadata,
+            embedding_model, created_at,
+            ts_rank(to_tsvector('portuguese', chunk_text), websearch_to_tsquery('portuguese', $1)) AS rank
+     FROM documents
+     WHERE ${where.join(' AND ')}
+     ORDER BY rank DESC
+     LIMIT $${params.length}`,
+    params
+  );
+  return res.rows.map((r) => ({ ...r, rank: Number(r.rank), similarity: null }));
+}
+
 export async function listSources() {
   const res = await pool.query(`
     SELECT project, source_path,
@@ -573,7 +601,7 @@ export async function searchMessages({ embedding, model, agent, excludeConversat
   if (excludeConversationId) { params.push(excludeConversationId); where.push(`conversation_id <> $${params.length}`); }
   params.push(topK);
   const res = await pool.query(
-    `SELECT content, agent, conversation_id, created_at,
+    `SELECT id, content, agent, conversation_id, created_at,
             1 - (embedding <=> $1::vector) AS similarity
      FROM messages
      WHERE ${where.join(' AND ')}
@@ -582,6 +610,27 @@ export async function searchMessages({ embedding, model, agent, excludeConversat
     params
   );
   return res.rows.map((r) => ({ ...r, similarity: Number(r.similarity) }));
+}
+
+// Versão por PALAVRA-CHAVE da memória coletiva (full-text português). agent=null
+// → busca em todos os agentes; exclui a conversa atual como o vetorial faz.
+export async function searchMessagesKeyword({ query, agent, excludeConversationId, topK = 20 }) {
+  if (!query || !query.trim()) return [];
+  const params = [query];
+  const where = [`to_tsvector('portuguese', content) @@ websearch_to_tsquery('portuguese', $1)`, 'embedding IS NOT NULL'];
+  if (agent) { params.push(agent); where.push(`agent = $${params.length}`); }
+  if (excludeConversationId) { params.push(excludeConversationId); where.push(`conversation_id <> $${params.length}`); }
+  params.push(topK);
+  const res = await pool.query(
+    `SELECT id, content, agent, conversation_id, created_at,
+            ts_rank(to_tsvector('portuguese', content), websearch_to_tsquery('portuguese', $1)) AS rank
+     FROM messages
+     WHERE ${where.join(' AND ')}
+     ORDER BY rank DESC
+     LIMIT $${params.length}`,
+    params
+  );
+  return res.rows.map((r) => ({ ...r, rank: Number(r.rank), similarity: null }));
 }
 
 // --- CENTRAL DE MEMÓRIA ----------------------------------------------------

@@ -70,7 +70,15 @@ function defaults() {
     EMBEDDING_DIMS: parseInt(process.env.EMBEDDING_DIMS || '1536', 10),
     CHUNK_SIZE: parseInt(process.env.CHUNK_SIZE || '512', 10),
     CHUNK_OVERLAP: parseInt(process.env.CHUNK_OVERLAP || '64', 10),
-    CHUNK_UNIT: process.env.CHUNK_UNIT || 'tokens'
+    CHUNK_UNIT: process.env.CHUNK_UNIT || 'tokens',
+    // --- RAG (recuperação / "cérebro") -------------------------------------
+    RAG_QUERY_REWRITE: process.env.RAG_QUERY_REWRITE !== 'false', // reescreve a pergunta c/ contexto da conversa antes de buscar
+    RAG_HYBRID: process.env.RAG_HYBRID !== 'false',               // busca híbrida (vetorial + palavra-chave)
+    RAG_TOP_K: parseInt(process.env.RAG_TOP_K || '6', 10),        // nº final de chunks no contexto
+    RAG_MEM_TOP_K: parseInt(process.env.RAG_MEM_TOP_K || '6', 10),// nº final de memórias coletivas
+    RAG_CANDIDATES: parseInt(process.env.RAG_CANDIDATES || '20', 10), // candidatos por método antes da fusão
+    RAG_MIN_SIM: parseFloat(process.env.RAG_MIN_SIM || '0.15'),   // limiar de cosseno (corta vetorial fraco; keyword passa)
+    RAG_CHUNK_CHARS: parseInt(process.env.RAG_CHUNK_CHARS || '1200', 10) // máx. de chars por chunk no prompt
   };
 }
 

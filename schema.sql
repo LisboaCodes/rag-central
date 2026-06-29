@@ -27,3 +27,7 @@ CREATE INDEX IF NOT EXISTS documents_embedding_hnsw
 
 -- índice por projeto para filtros
 CREATE INDEX IF NOT EXISTS documents_project_idx ON documents (project);
+
+-- índice full-text (português) para a busca HÍBRIDA por palavra-chave
+CREATE INDEX IF NOT EXISTS documents_fts_idx
+  ON documents USING gin (to_tsvector('portuguese', chunk_text));

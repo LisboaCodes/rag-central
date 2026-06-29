@@ -7,11 +7,14 @@ import { embed } from './embedding.js';
 import {
   searchSimilar,
   searchMessages,
+  searchDocumentsKeyword,
+  searchMessagesKeyword,
   createConversation,
   getRecentMessages,
   insertMessage,
   listAgents
 } from './db.js';
+import { rrfFuse, applyThreshold } from './retrieval.js';
 import { getToolDefs, executeTool } from './tools.js';
 
 // Persona efetiva de um agente vindo do banco. Se não tiver persona definida,
@@ -51,8 +54,9 @@ function buildSystemPrompt(persona, contextChunks, memories) {
   }
 
   if (contextChunks.length) {
+    const maxC = getSettings().RAG_CHUNK_CHARS || 700;
     const ctx = contextChunks
-      .map((c, i) => `[${i + 1}] (${c.source_path})\n${String(c.chunk_text).slice(0, 700)}`)
+      .map((c, i) => `[${i + 1}] (${c.source_path})\n${String(c.chunk_text).slice(0, maxC)}`)
       .join('\n\n');
     sys +=
       '\n\nUse o CONTEXTO abaixo, extraído da base de conhecimento, quando for relevante ' +
@@ -115,18 +119,64 @@ function providerFor(agent) {
     : { provider: 'ollama', ollamaUrl: s.OLLAMA_URL, ollamaModel: s.OLLAMA_CHAT_MODEL };
 }
 
+// Completação simples (não-streaming) com qualquer provedor — usada pela
+// reescrita de query. Best-effort: o chamador trata exceção.
+async function quickComplete(prov, messages) {
+  if (prov.provider === 'openai') return (await callOpenAICompatible(prov, messages)).answer;
+  if (prov.provider === 'anthropic') return (await callAnthropic(prov, messages)).answer;
+  if (prov.provider === 'claude-cli') return (await callClaudeCli(prov, messages)).answer;
+  return (await callOllama(prov, messages)).answer;
+}
+
+// Reescreve a última mensagem como uma CONSULTA DE BUSCA autônoma, resolvendo
+// pronomes/referências com o contexto da conversa ("e ele?", "e isso?"). É o
+// maior ganho do RAG em perguntas de continuação. Best-effort: se não houver
+// histórico ou a chamada falhar, devolve o texto original.
+async function condenseQuery(prov, recent, latestText) {
+  const hist = (recent || []).filter((m) => m && m.content && String(m.content).trim());
+  if (hist.length === 0) return latestText;
+  const convo = hist.slice(-6)
+    .map((m) => `${m.role === 'assistant' ? (m.agent || 'AGENTE') : 'USUÁRIO'}: ${String(m.content).slice(0, 300)}`)
+    .join('\n');
+  const messages = [
+    { role: 'system', content: 'Você reescreve a última pergunta do usuário como uma consulta de busca AUTÔNOMA e completa, resolvendo pronomes e referências com base na conversa. Responda APENAS com a consulta reescrita — sem aspas, sem rótulos, sem explicação. Se a pergunta já for autônoma, repita-a igual.' },
+    { role: 'user', content: `CONVERSA:\n${convo}\n\nÚLTIMA PERGUNTA: ${latestText}\n\nConsulta de busca autônoma:` }
+  ];
+  try {
+    const out = await quickComplete(prov, messages);
+    const q = String(out || '').trim().replace(/^["']+|["']+$/g, '');
+    return q && q.length <= 600 ? q : latestText;
+  } catch {
+    return latestText;
+  }
+}
+
 // outros agentes nesta rodada) dá o contexto. Persiste só a resposta.
-async function generateReply({ agentKey, persona, prov, conversationId, latestText, qEmbedding, embModel, project, group, images }, onEvent) {
+async function generateReply({ agentKey, persona, prov, conversationId, latestText, qEmbedding, retrievalEmbedding, keywordQuery, embModel, project, group, images }, onEvent) {
+
+  const s = getSettings();
+  // embedding usado p/ BUSCA = o da query reescrita (cai pro da mensagem crua)
+  const reEmb = retrievalEmbedding || qEmbedding;
+  const kw = (s.RAG_HYBRID && (keywordQuery || latestText)) || null;
+  const cand = s.RAG_CANDIDATES;
 
   let contextChunks = [];
   let memories = [];
-  if (qEmbedding) {
+  if (reEmb || kw) {
+    // CONTEXTO (documentos): busca híbrida = vetorial + palavra-chave, fundidas
+    // por RRF, com limiar de cosseno e top-K final configuráveis.
     try {
-      contextChunks = await searchSimilar({ embedding: qEmbedding, model: embModel, project: project || null, topK: 4, matchModel: true });
+      const lists = [];
+      if (reEmb) lists.push(await searchSimilar({ embedding: reEmb, model: embModel, project: project || null, topK: cand, matchModel: true }));
+      if (kw) lists.push(await searchDocumentsKeyword({ query: keywordQuery || latestText, model: embModel, project: project || null, topK: cand, matchModel: true }));
+      contextChunks = applyThreshold(rrfFuse(lists), s.RAG_MIN_SIM).slice(0, s.RAG_TOP_K);
     } catch { /* db off */ }
+    // MEMÓRIA COLETIVA (mensagens de TODOS os agentes): mesma busca híbrida
     try {
-      // agent: null → cérebro coletivo (relembra de TODOS os agentes, não só o próprio)
-      memories = await searchMessages({ embedding: qEmbedding, model: embModel, agent: null, excludeConversationId: conversationId, topK: 6, matchModel: true });
+      const memLists = [];
+      if (reEmb) memLists.push(await searchMessages({ embedding: reEmb, model: embModel, agent: null, excludeConversationId: conversationId, topK: cand, matchModel: true }));
+      if (kw) memLists.push(await searchMessagesKeyword({ query: keywordQuery || latestText, agent: null, excludeConversationId: conversationId, topK: cand }));
+      memories = applyThreshold(rrfFuse(memLists), s.RAG_MIN_SIM).slice(0, s.RAG_MEM_TOP_K);
     } catch { /* db off */ }
   }
 
@@ -356,6 +406,25 @@ export async function chatWithAgent({ agent, message, conversationId, history = 
 
   if (onEvent && convId) onEvent({ type: 'meta', conversationId: convId });
 
+  // REESCRITA DE QUERY: condensa a conversa numa pergunta autônoma e embeda
+  // ISSO p/ a busca híbrida (conserta perguntas de continuação). Best-effort —
+  // sem histórico ou em falha, mantém o embedding/texto da mensagem crua.
+  let retrievalEmbedding = qEmbedding;
+  let keywordQuery = message;
+  if (dbOk && convId && getSettings().RAG_QUERY_REWRITE) {
+    let prior = [];
+    try { prior = await getRecentMessages(convId, 9); } catch { /* db off */ }
+    if (prior.length && prior[prior.length - 1]?.role === 'user') prior = prior.slice(0, -1);
+    if (prior.length) {
+      const condensed = await condenseQuery(providerFor(primary), prior, message);
+      if (condensed && condensed !== message) {
+        keywordQuery = condensed;
+        const r = await embedOne(condensed);
+        if (r.embedding) retrievalEmbedding = r.embedding;
+      }
+    }
+  }
+
   // responders: primário + mencionados (distintos)
   const mentioned = parseMentions(message, new Set(agentMap.keys())).filter((a) => a !== key);
   const responders = [key, ...mentioned];
@@ -368,7 +437,7 @@ export async function chatWithAgent({ agent, message, conversationId, history = 
       const reply = await generateReply({
         agentKey: a, persona: personaOf(agentMap.get(a)), prov: providerFor(agentMap.get(a)),
         conversationId: convId, latestText: message,
-        qEmbedding, embModel, project, group: responders, images: a === key ? images : null
+        qEmbedding, retrievalEmbedding, keywordQuery, embModel, project, group: responders, images: a === key ? images : null
       }, onEvent);
       if (onEvent) onEvent({ type: 'agent_done', agent: a, sources: reply.sources, memories: reply.memories, toolsUsed: reply.toolsUsed });
       replies.push(reply);
