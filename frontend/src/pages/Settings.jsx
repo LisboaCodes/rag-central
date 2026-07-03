@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Database, Cloud, Cpu, Braces, Plug, MessagesSquare, GitBranch, Smartphone, Newspaper, ShieldCheck } from 'lucide-react';
+import { Database, Cloud, Cpu, Braces, Plug, MessagesSquare, GitBranch, Smartphone, Newspaper, ShieldCheck, ListTodo } from 'lucide-react';
 import { api, API_BASE } from '../lib/api.js';
 import { useAgents } from '../lib/AgentsContext.jsx';
 
@@ -66,6 +66,56 @@ function WhatsAppExtras() {
         Passo a passo: instale a evolution-api → crie uma instância → preencha URL/key/instância acima e Salve →
         clique <strong>Conectar (QR)</strong> e leia no WhatsApp → <strong>Registrar webhook</strong> →
         ative o toggle. Webhook deste backend: <code className="text-violet-400">{webhookUrl}</code>
+      </p>
+    </div>
+  );
+}
+
+// Ações extras do TaskHub (testar a conexão MCP + listar ferramentas)
+function TaskhubExtras() {
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState(null);
+  const [tools, setTools] = useState(null);
+
+  const run = async (kind, fn) => {
+    setBusy(kind); setMsg(null);
+    try { return await fn(); }
+    catch (err) { setMsg({ ok: false, text: err.message }); }
+    finally { setBusy(''); }
+  };
+
+  return (
+    <div className="space-y-3 border-t border-edge pt-4">
+      <div className="flex flex-wrap gap-2">
+        <button type="button" onClick={() => run('status', async () => {
+          const r = await api.taskhub.status();
+          setMsg({ ok: r.ok, text: r.ok ? `Conectado${r.server?.name ? ` a ${r.server.name} ${r.server.version || ''}` : ''} ✓` : r.detail });
+        })}
+          className="rounded-lg border border-edge px-3 py-1.5 text-xs hover:border-emerald-500 hover:text-emerald-400">
+          {busy === 'status' ? '…' : 'Testar conexão'}
+        </button>
+        <button type="button" onClick={() => run('tools', async () => {
+          const r = await api.taskhub.tools(); setTools(r.tools || []);
+          setMsg({ ok: true, text: `${r.count} ferramentas disponíveis aos agentes` });
+        })}
+          className="rounded-lg border border-edge px-3 py-1.5 text-xs hover:border-emerald-500 hover:text-emerald-400">
+          {busy === 'tools' ? '…' : 'Listar ferramentas'}
+        </button>
+      </div>
+
+      {tools && (
+        <div className="max-h-40 overflow-auto rounded-lg bg-background px-3 py-2 text-[11px] text-muted">
+          {tools.map((t) => (
+            <div key={t.name}><code className="text-violet-400">taskhub_{t.name}</code> — {t.description}</div>
+          ))}
+        </div>
+      )}
+      {msg && <p className={`text-xs ${msg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{msg.text}</p>}
+
+      <p className="rounded-lg bg-background px-3 py-2 text-[10px] text-muted">
+        O TaskHub roda como serviço próprio (Next.js) e compartilha o mesmo Postgres. Preencha URL + segredo (MCP_SECRET),
+        Salve e clique <strong>Testar conexão</strong>. Depois os agentes ganham as ferramentas de tarefas/hábitos e a
+        aba <strong>Tarefas</strong> passa a embutir o app.
       </p>
     </div>
   );
@@ -490,6 +540,47 @@ export default function Settings() {
           </div>
 
           <WhatsAppExtras />
+        </Section>
+
+        <Section
+          icon={ListTodo}
+          title="TaskHub (tarefas / hábitos)"
+          saved={savedSection === 'taskhub'}
+          onSave={() => save('taskhub', ['TASKHUB_ENABLED', 'TASKHUB_MCP_URL', 'TASKHUB_MCP_SECRET', 'TASKHUB_PUBLIC_URL'])}
+        >
+          <div className="flex items-center justify-between rounded-lg bg-background px-3 py-2">
+            <span className="text-sm">Ativar integração com o TaskHub</span>
+            <button
+              type="button"
+              onClick={() => set('TASKHUB_ENABLED', !form.TASKHUB_ENABLED)}
+              className={`relative h-6 w-11 rounded-full transition-colors ${form.TASKHUB_ENABLED ? 'bg-emerald-600' : 'bg-slate-600'}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${form.TASKHUB_ENABLED ? 'left-[22px]' : 'left-0.5'}`} />
+            </button>
+          </div>
+          <Input
+            label="URL pública do TaskHub (o que a aba Tarefas carrega)"
+            value={form.TASKHUB_PUBLIC_URL || ''}
+            onChange={(e) => set('TASKHUB_PUBLIC_URL', e.target.value)}
+            placeholder="https://taskhub.creativenext.dev"
+            hint="Se vazio, é derivada da URL do MCP (sem /api/mcp)."
+          />
+          <Input
+            label="URL do MCP do TaskHub"
+            value={form.TASKHUB_MCP_URL || ''}
+            onChange={(e) => set('TASKHUB_MCP_URL', e.target.value)}
+            placeholder="https://taskhub.creativenext.dev/api/mcp"
+            hint="Pode ser só a base (adicionamos /api/mcp) ou o caminho completo."
+          />
+          <Input
+            label="Segredo do MCP (= MCP_SECRET do TaskHub)"
+            value={form.TASKHUB_MCP_SECRET || ''}
+            onChange={(e) => set('TASKHUB_MCP_SECRET', e.target.value)}
+            placeholder="cole o MCP_SECRET configurado no TaskHub"
+            autoComplete="off"
+            hint="Deixe a versão mascarada (••••) para manter. Habilita os agentes a criar/consultar tarefas, hábitos, pomodoro, etc."
+          />
+          <TaskhubExtras />
         </Section>
 
         <Section

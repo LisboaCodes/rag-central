@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Upload, FolderOpen, Search, Bot, Building2, GitBranch, MessagesSquare, Newspaper, ScrollText, Settings, BrainCircuit, Brain, Network, CalendarClock, Vault, LogOut, FolderGit2
+  LayoutDashboard, Upload, FolderOpen, Search, Bot, Building2, GitBranch, MessagesSquare, Newspaper, ScrollText, Settings, BrainCircuit, Brain, Network, CalendarClock, Vault, LogOut, FolderGit2, ListTodo
 } from 'lucide-react';
 import { useStatus } from '../lib/StatusContext.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
@@ -16,6 +16,7 @@ export const NAV = [
   { to: '/cerebro', label: 'Cérebro', icon: Network, title: 'Cérebro Visual', subtitle: 'Grafo do conhecimento — como o cérebro está conectado e evoluindo' },
   { to: '/cofre', label: 'Cofre', icon: Vault, title: 'Cofre', subtitle: 'E-mails, senhas e serviços — cifrados pela sua senha-mestra' },
   { to: '/projetos', label: 'Projetos', icon: FolderGit2, title: 'Projetos & Scripts', subtitle: 'Rode projetos/scripts no servidor, edite o código e veja o console ao vivo' },
+  { to: '/tarefas', label: 'Tarefas', icon: ListTodo, title: 'Tarefas (TaskHub)', subtitle: 'Suas tarefas, projetos, hábitos e pomodoro — operáveis também pelos agentes' },
   { to: '/agendamentos', label: 'Agendamentos', icon: CalendarClock, title: 'Agendamentos (CRON)', subtitle: 'Tarefas que rodam sozinhas no horário definido' },
   { to: '/office', label: 'Escritório', icon: Building2, title: 'Escritório Virtual', subtitle: 'Seus agentes em um escritório 2D em tempo real' },
   { to: '/novidades', label: 'Novidades IA', icon: Newspaper, title: 'Novidades de IA', subtitle: 'Últimas do mundo de IA e APIs (via Perplexity)' },

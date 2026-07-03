@@ -225,5 +225,11 @@ export const api = {
   config: () => request('/config'),
   updateConfig: (patch) => request('/config', { method: 'PUT', body: JSON.stringify(patch) }),
   testConnection: (service) =>
-    request('/config/test', { method: 'POST', body: JSON.stringify({ service }) })
+    request('/config/test', { method: 'POST', body: JSON.stringify({ service }) }),
+
+  taskhub: {
+    config: () => request('/taskhub/config'),
+    status: () => request('/taskhub/status'),
+    tools: () => request('/taskhub/tools')
+  }
 };

@@ -32,6 +32,9 @@ function masked(settings) {
   if (out.RESEND_API_KEY) {
     out.RESEND_API_KEY = `${KEY_MASK_PREFIX}${out.RESEND_API_KEY.slice(-4)}`;
   }
+  if (out.TASKHUB_MCP_SECRET) {
+    out.TASKHUB_MCP_SECRET = `${KEY_MASK_PREFIX}${out.TASKHUB_MCP_SECRET.slice(-4)}`;
+  }
   // o segredo de sessão nunca é exposto — só informa se já existe
   out.AUTH_SESSION_SECRET = out.AUTH_SESSION_SECRET ? '••••configurado' : '';
   out.VAULT_AGENT_SECRET = out.VAULT_AGENT_SECRET ? '••••configurado' : '';
@@ -68,6 +71,9 @@ router.put('/', (req, res, next) => {
     }
     if (typeof patch.RESEND_API_KEY === 'string' && patch.RESEND_API_KEY.startsWith(KEY_MASK_PREFIX)) {
       delete patch.RESEND_API_KEY;
+    }
+    if (typeof patch.TASKHUB_MCP_SECRET === 'string' && patch.TASKHUB_MCP_SECRET.startsWith(KEY_MASK_PREFIX)) {
+      delete patch.TASKHUB_MCP_SECRET;
     }
     // segredo de sessão é gerido pelo próprio sistema; nunca aceita pela UI
     delete patch.AUTH_SESSION_SECRET;

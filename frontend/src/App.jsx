@@ -8,6 +8,7 @@ import Memoria from './pages/Memoria.jsx';
 import Cerebro from './pages/Cerebro.jsx';
 import Cofre from './pages/Cofre.jsx';
 import Projetos from './pages/Projetos.jsx';
+import Tarefas from './pages/Tarefas.jsx';
 import Agendamentos from './pages/Agendamentos.jsx';
 import Search from './pages/Search.jsx';
 import Agents from './pages/Agents.jsx';
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="/cerebro" element={<Cerebro />} />
             <Route path="/cofre" element={<Cofre />} />
             <Route path="/projetos" element={<Projetos />} />
+            <Route path="/tarefas" element={<Tarefas />} />
             <Route path="/agendamentos" element={<Agendamentos />} />
             <Route path="/search" element={<Search />} />
             <Route path="/agents" element={<Agents />} />

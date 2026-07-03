@@ -23,6 +23,7 @@ import logsRouter from './routes/logs.js';
 import authRouter from './routes/auth.js';
 import vaultRouter from './routes/vault.js';
 import projectsRouter from './routes/projects.js';
+import taskhubRouter from './routes/taskhub.js';
 import { authGate } from './services/auth.js';
 import { logEvent } from './services/activity.js';
 
@@ -44,6 +45,7 @@ app.use(authGate);
 
 app.use('/vault', vaultRouter);
 app.use('/projects', projectsRouter);
+app.use('/taskhub', taskhubRouter);
 app.use('/query', queryRouter);
 app.use('/chat', chatRouter);
 app.use('/conversations', conversationsRouter);

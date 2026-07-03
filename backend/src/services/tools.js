@@ -5,6 +5,7 @@ import { chunkText } from './chunker.js';
 import * as gh from './github.js';
 import { askPerplexity, perplexityEnabled } from './perplexity.js';
 import * as vault from './vault.js';
+import { taskhubEnabled, listMcpTools, callMcpTool } from './taskhub.js';
 
 // Ferramentas que os agentes podem invocar (function-calling OpenAI-compatible).
 // As de RAG funcionam sempre; as de GitHub só aparecem se houver GITHUB_TOKEN.
@@ -167,12 +168,41 @@ async function vaultToolsAvailable(agentKey) {
   } catch { return false; }
 }
 
+// TaskHub: as ferramentas vêm do próprio TaskHub via MCP (tools/list). Prefixamos
+// com `taskhub_` para evitar colisão e roteamos de volta em executeTool.
+const TASKHUB_PREFIX = 'taskhub_';
+
+function mcpToolToFunctionDef(t) {
+  return {
+    type: 'function',
+    function: {
+      name: `${TASKHUB_PREFIX}${t.name}`,
+      description: `[TaskHub] ${t.description || t.name}`,
+      parameters: t.inputSchema && typeof t.inputSchema === 'object'
+        ? t.inputSchema
+        : { type: 'object', properties: {} }
+    }
+  };
+}
+
+async function taskhubToolDefs() {
+  if (!taskhubEnabled()) return [];
+  try {
+    const tools = await listMcpTools();
+    return tools.map(mcpToolToFunctionDef);
+  } catch {
+    // TaskHub fora do ar / mal configurado: não quebra o chat, só não oferece as tools
+    return [];
+  }
+}
+
 export async function getToolDefs(ctx = {}) {
   const { GITHUB_TOKEN } = getSettings();
   const defs = [...RAG_TOOLS];
   if (GITHUB_TOKEN) defs.push(...GITHUB_TOOLS);
   if (perplexityEnabled()) defs.push(WEB_TOOL);
   if (await vaultToolsAvailable(ctx.agent)) defs.push(...VAULT_TOOLS);
+  defs.push(...(await taskhubToolDefs()));
   return defs;
 }
 
@@ -246,6 +276,11 @@ export async function executeTool(name, args = {}, ctx = {}) {
         return await vault.agentSearch(args.busca || '');
       }
       default:
+        // Ferramentas do TaskHub (prefixo taskhub_) → repassa via MCP
+        if (name && name.startsWith(TASKHUB_PREFIX)) {
+          if (!taskhubEnabled()) return { erro: 'TaskHub não está habilitado' };
+          return await callMcpTool(name.slice(TASKHUB_PREFIX.length), args);
+        }
         return { erro: `ferramenta desconhecida: ${name}` };
     }
   } catch (err) {

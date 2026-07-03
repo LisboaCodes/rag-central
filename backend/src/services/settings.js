@@ -66,6 +66,12 @@ function defaults() {
     VAULT_AGENT_KEYS: process.env.VAULT_AGENT_KEYS || 'DARLENE',
     // Runner de projetos: pasta-raiz onde os projetos/scripts ficam no host.
     PROJECTS_DIR: process.env.PROJECTS_DIR || '',
+    // --- TaskHub (app de tarefas/hábitos, roda como serviço próprio) --------
+    // Integração via MCP: os agentes operam o TaskHub e a UI é embutida.
+    TASKHUB_ENABLED: process.env.TASKHUB_ENABLED === 'true',
+    TASKHUB_MCP_URL: (process.env.TASKHUB_MCP_URL || '').replace(/\/+$/, ''),   // base do TaskHub ou já .../api/mcp
+    TASKHUB_MCP_SECRET: process.env.TASKHUB_MCP_SECRET || '',                   // = MCP_SECRET do TaskHub (Bearer)
+    TASKHUB_PUBLIC_URL: (process.env.TASKHUB_PUBLIC_URL || '').replace(/\/+$/, ''), // URL que o iframe carrega (default = MCP_URL sem /api/mcp)
     EMBEDDING_MODE: process.env.EMBEDDING_MODE || 'auto',
     EMBEDDING_DIMS: parseInt(process.env.EMBEDDING_DIMS || '1536', 10),
     CHUNK_SIZE: parseInt(process.env.CHUNK_SIZE || '512', 10),
@@ -109,6 +115,9 @@ export function updateSettings(patch) {
   if (clean.OLLAMA_URL) clean.OLLAMA_URL = String(clean.OLLAMA_URL).replace(/\/+$/, '');
   if (clean.CHAT_API_BASE) clean.CHAT_API_BASE = String(clean.CHAT_API_BASE).replace(/\/+$/, '');
   if (clean.WHATSAPP_API_URL) clean.WHATSAPP_API_URL = String(clean.WHATSAPP_API_URL).replace(/\/+$/, '');
+  if (clean.TASKHUB_ENABLED !== undefined) clean.TASKHUB_ENABLED = clean.TASKHUB_ENABLED === true || clean.TASKHUB_ENABLED === 'true';
+  if (clean.TASKHUB_MCP_URL) clean.TASKHUB_MCP_URL = String(clean.TASKHUB_MCP_URL).replace(/\/+$/, '');
+  if (clean.TASKHUB_PUBLIC_URL) clean.TASKHUB_PUBLIC_URL = String(clean.TASKHUB_PUBLIC_URL).replace(/\/+$/, '');
   if (clean.WHATSAPP_ENABLED !== undefined) clean.WHATSAPP_ENABLED = clean.WHATSAPP_ENABLED === true || clean.WHATSAPP_ENABLED === 'true';
   if (clean.WHATSAPP_AGENT) clean.WHATSAPP_AGENT = String(clean.WHATSAPP_AGENT).toUpperCase();
   if (clean.WHATSAPP_NOTIFY_NUMBER) clean.WHATSAPP_NOTIFY_NUMBER = String(clean.WHATSAPP_NOTIFY_NUMBER).replace(/\D/g, '');
