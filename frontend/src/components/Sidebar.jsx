@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Upload, FolderOpen, Search, Bot, Building2, GitBranch, MessagesSquare, Newspaper, ScrollText, Settings, BrainCircuit, Brain, Network, CalendarClock, Vault, LogOut, FolderGit2, ListTodo
+  LayoutDashboard, Upload, FolderOpen, Search, Bot, Building2, GitBranch, MessagesSquare, Newspaper, ScrollText, Settings, BrainCircuit, Brain, Network, CalendarClock, Vault, LogOut, FolderGit2, ListTodo, Mail
 } from 'lucide-react';
 import { useStatus } from '../lib/StatusContext.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
@@ -21,6 +21,7 @@ export const NAV = [
   { to: '/office', label: 'Escritório', icon: Building2, title: 'Escritório Virtual', subtitle: 'Seus agentes em um escritório 2D em tempo real' },
   { to: '/novidades', label: 'Novidades IA', icon: Newspaper, title: 'Novidades de IA', subtitle: 'Últimas do mundo de IA e APIs (via Perplexity)' },
   { to: '/github', label: 'GitHub', icon: GitBranch, title: 'GitHub', subtitle: 'Repositórios linkados — navegar, visualizar e commitar' },
+  { to: '/emails', label: 'E-mails', icon: Mail, title: 'Controle de E-mails', subtitle: 'Todos os envios do email-api — status, entrega, abertura e falhas' },
   { to: '/logs', label: 'Logs do Sistema', icon: ScrollText, title: 'Logs do Sistema', subtitle: 'Eventos e diagnóstico em tempo real' },
   { to: '/settings', label: 'Configurações', icon: Settings, title: 'Configurações', subtitle: 'Serviços, embedding e aplicação' }
 ];

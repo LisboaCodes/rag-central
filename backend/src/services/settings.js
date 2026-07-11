@@ -57,9 +57,14 @@ function defaults() {
     AUTH_SESSION_SECRET: process.env.AUTH_SESSION_SECRET || '',   // segredo p/ assinar tokens (auto-gerado se vazio)
     AUTH_SESSION_TTL_HOURS: parseInt(process.env.AUTH_SESSION_TTL_HOURS || '12', 10),
     AUTH_2FA_NUMBER: process.env.AUTH_2FA_NUMBER || '',           // WhatsApp que recebe o 2º fator (só dígitos)
-    // Resend — envio do código de login por e-mail (resend.com)
-    RESEND_API_KEY: process.env.RESEND_API_KEY || '',
-    RESEND_FROM: process.env.RESEND_FROM || 'CERBERUS <onboarding@resend.dev>',
+    // email-api — serviço central de envio (send.creativenext.dev). O RAG não
+    // conhece o Resend: manda pra cá com a chave dele e o serviço central
+    // escolhe o provedor, faz failover e registra todos os envios.
+    EMAIL_API_URL: (process.env.EMAIL_API_URL || 'https://send.creativenext.dev').replace(/\/+$/, ''),
+    EMAIL_API_KEY: process.env.EMAIL_API_KEY || '',
+    // Agentes autorizados a usar a ferramenta enviar_email (csv). Os demais
+    // nem enxergam a ferramenta — mesmo modelo do cofre.
+    EMAIL_AGENT_KEYS: process.env.EMAIL_AGENT_KEYS || 'DARLENE',
     // Cofre operado por agente: segredo que cifra a senha-mestra guardada
     // (assim o banco sozinho não abre o cofre) + quais agentes podem usar.
     VAULT_AGENT_SECRET: process.env.VAULT_AGENT_SECRET || '',
@@ -132,6 +137,11 @@ export function updateSettings(patch) {
   }
   if (clean.VAULT_AGENT_KEYS !== undefined) {
     clean.VAULT_AGENT_KEYS = String(clean.VAULT_AGENT_KEYS)
+      .split(',').map((k) => k.trim().toUpperCase()).filter(Boolean).join(',');
+  }
+  if (clean.EMAIL_API_URL) clean.EMAIL_API_URL = String(clean.EMAIL_API_URL).replace(/\/+$/, '');
+  if (clean.EMAIL_AGENT_KEYS !== undefined) {
+    clean.EMAIL_AGENT_KEYS = String(clean.EMAIL_AGENT_KEYS)
       .split(',').map((k) => k.trim().toUpperCase()).filter(Boolean).join(',');
   }
   if (clean.AUTH_SESSION_TTL_HOURS !== undefined) {

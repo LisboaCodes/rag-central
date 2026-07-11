@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Database, Cloud, Cpu, Braces, Plug, MessagesSquare, GitBranch, Smartphone, Newspaper, ShieldCheck, ListTodo } from 'lucide-react';
+import { Database, Cloud, Cpu, Braces, Plug, MessagesSquare, GitBranch, Smartphone, Newspaper, ShieldCheck, ListTodo, Mail } from 'lucide-react';
 import { api, API_BASE } from '../lib/api.js';
 import { useAgents } from '../lib/AgentsContext.jsx';
 
@@ -247,7 +247,7 @@ export default function Settings() {
           icon={ShieldCheck}
           title="Segurança & Login (2 fatores)"
           saved={savedSection === 'auth'}
-          onSave={() => save('auth', ['AUTH_ENABLED', 'AUTH_ALLOWED_EMAILS', 'AUTH_2FA_NUMBER', 'AUTH_SESSION_TTL_HOURS', 'RESEND_API_KEY', 'RESEND_FROM', 'VAULT_AGENT_SECRET', 'VAULT_AGENT_KEYS'])}
+          onSave={() => save('auth', ['AUTH_ENABLED', 'AUTH_ALLOWED_EMAILS', 'AUTH_2FA_NUMBER', 'AUTH_SESSION_TTL_HOURS', 'VAULT_AGENT_SECRET', 'VAULT_AGENT_KEYS'])}
         >
           <div className="flex items-center justify-between rounded-lg bg-background px-3 py-2">
             <span className="text-sm">Exigir login para acessar o painel</span>
@@ -260,9 +260,9 @@ export default function Settings() {
             </button>
           </div>
           <p className="rounded-lg bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400">
-            ⚠️ Antes de ligar: preencha a <strong>API Key do Resend</strong>, o <strong>e-mail permitido</strong> e o
-            <strong> número do 2º fator</strong>, e confirme que o WhatsApp (seção abaixo) está conectado — senão você
-            pode se trancar para fora. O Cofre exige este login ligado.
+            ⚠️ Antes de ligar: configure o <strong>serviço de e-mail</strong> (seção E-mail), preencha o
+            <strong> e-mail permitido</strong> e o <strong>número do 2º fator</strong>, e confirme que o WhatsApp
+            (seção abaixo) está conectado — senão você pode se trancar para fora. O Cofre exige este login ligado.
           </p>
           <Input
             label="E-mails permitidos (separados por vírgula)"
@@ -277,21 +277,6 @@ export default function Settings() {
             onChange={(e) => set('AUTH_2FA_NUMBER', e.target.value)}
             placeholder="55..."
             hint="Número que recebe o código da 2ª etapa, via evolution-api."
-          />
-          <Input
-            label="API Key do Resend"
-            value={form.RESEND_API_KEY || ''}
-            onChange={(e) => set('RESEND_API_KEY', e.target.value)}
-            placeholder="re_…"
-            autoComplete="off"
-            hint="Crie em resend.com/api-keys. Deixe a versão mascarada (••••) para manter."
-          />
-          <Input
-            label="Remetente do e-mail (from)"
-            value={form.RESEND_FROM || ''}
-            onChange={(e) => set('RESEND_FROM', e.target.value)}
-            placeholder="CERBERUS <login@seu-dominio.com>"
-            hint="Use um domínio verificado no Resend. Para teste, onboarding@resend.dev (só envia ao seu próprio e-mail de cadastro)."
           />
           <Input
             label="Duração da sessão (horas)"
@@ -320,6 +305,44 @@ export default function Settings() {
               Depois de salvar o segredo, vá em <strong>Cofre → Acesso da IA</strong> e clique em <strong>Liberar acesso</strong> (confirma a senha-mestra uma vez).
             </p>
           </div>
+        </Section>
+
+        <Section
+          icon={Mail}
+          title="E-mail (email-api)"
+          saved={savedSection === 'email'}
+          onSave={() => save('email', ['EMAIL_API_URL', 'EMAIL_API_KEY', 'EMAIL_AGENT_KEYS'])}
+        >
+          <p className="text-xs text-muted">
+            Todo e-mail do RAG (código de login e envios dos agentes) sai pelo <strong>email-api</strong>, o serviço
+            central. O provedor de verdade (Resend/Brevo) e o remetente ficam configurados lá — o RAG não conhece nenhum
+            dos dois.
+          </p>
+          <Input
+            label="URL do email-api"
+            value={form.EMAIL_API_URL || ''}
+            onChange={(e) => set('EMAIL_API_URL', e.target.value)}
+            placeholder="https://send.creativenext.dev"
+          />
+          <Input
+            label="Chave do RAG no email-api"
+            value={form.EMAIL_API_KEY || ''}
+            onChange={(e) => set('EMAIL_API_KEY', e.target.value)}
+            placeholder="a chave do app 'rag' em APP_KEYS"
+            autoComplete="off"
+            hint="É a chave do app 'rag' lá no email-api. Deixe a versão mascarada (••••) para manter."
+          />
+          <Input
+            label="Agentes que podem enviar e-mail (separados por vírgula)"
+            value={form.EMAIL_AGENT_KEYS || ''}
+            onChange={(e) => set('EMAIL_AGENT_KEYS', e.target.value)}
+            placeholder="DARLENE"
+            hint="Só estes agentes ganham a ferramenta enviar_email. Os outros nem sabem que ela existe."
+          />
+          <p className="rounded-lg bg-amber-500/5 px-3 py-2 text-[11px] text-amber-400">
+            ⚠️ Um agente que envia e-mail em nome do seu domínio é poder de verdade. Mantenha a lista curta — cada agente
+            aqui é alguém que pode assinar como CreativeNext.
+          </p>
         </Section>
 
         <Section icon={Database} title="Banco de Dados" service="db">

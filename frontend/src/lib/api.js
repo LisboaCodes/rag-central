@@ -172,6 +172,19 @@ export const api = {
     return request(`/logs${qs ? `?${qs}` : ''}`);
   },
 
+  emails: {
+    list: ({ status, search, limit, offset } = {}) => {
+      const params = new URLSearchParams();
+      if (status) params.set('status', status);
+      if (search) params.set('search', search);
+      if (limit) params.set('limit', limit);
+      if (offset) params.set('offset', offset);
+      const qs = params.toString();
+      return request(`/emails${qs ? `?${qs}` : ''}`);
+    },
+    test: (to) => request('/emails/test', { method: 'POST', body: JSON.stringify({ to }) })
+  },
+
   projects: {
     list: () => request('/projects'),
     create: (name) => request('/projects', { method: 'POST', body: JSON.stringify({ name }) }),

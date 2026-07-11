@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { getSettings, updateSettings } from './settings.js';
-import { sendLoginCode } from './resend.js';
+import { sendLoginCode } from './email.js';
 import { sendText } from './whatsapp.js';
 import { logEvent } from './activity.js';
 

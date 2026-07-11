@@ -29,8 +29,8 @@ function masked(settings) {
   if (out.ANTHROPIC_API_KEY) {
     out.ANTHROPIC_API_KEY = `${KEY_MASK_PREFIX}${out.ANTHROPIC_API_KEY.slice(-4)}`;
   }
-  if (out.RESEND_API_KEY) {
-    out.RESEND_API_KEY = `${KEY_MASK_PREFIX}${out.RESEND_API_KEY.slice(-4)}`;
+  if (out.EMAIL_API_KEY) {
+    out.EMAIL_API_KEY = `${KEY_MASK_PREFIX}${out.EMAIL_API_KEY.slice(-4)}`;
   }
   if (out.TASKHUB_MCP_SECRET) {
     out.TASKHUB_MCP_SECRET = `${KEY_MASK_PREFIX}${out.TASKHUB_MCP_SECRET.slice(-4)}`;
@@ -69,8 +69,8 @@ router.put('/', (req, res, next) => {
     if (typeof patch.ANTHROPIC_API_KEY === 'string' && patch.ANTHROPIC_API_KEY.startsWith(KEY_MASK_PREFIX)) {
       delete patch.ANTHROPIC_API_KEY;
     }
-    if (typeof patch.RESEND_API_KEY === 'string' && patch.RESEND_API_KEY.startsWith(KEY_MASK_PREFIX)) {
-      delete patch.RESEND_API_KEY;
+    if (typeof patch.EMAIL_API_KEY === 'string' && patch.EMAIL_API_KEY.startsWith(KEY_MASK_PREFIX)) {
+      delete patch.EMAIL_API_KEY;
     }
     if (typeof patch.TASKHUB_MCP_SECRET === 'string' && patch.TASKHUB_MCP_SECRET.startsWith(KEY_MASK_PREFIX)) {
       delete patch.TASKHUB_MCP_SECRET;

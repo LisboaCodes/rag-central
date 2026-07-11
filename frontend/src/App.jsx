@@ -15,6 +15,7 @@ import Agents from './pages/Agents.jsx';
 import GitHubPage from './pages/GitHub.jsx';
 import Conversas from './pages/Conversas.jsx';
 import Novidades from './pages/Novidades.jsx';
+import Emails from './pages/Emails.jsx';
 import Logs from './pages/Logs.jsx';
 import Settings from './pages/Settings.jsx';
 import Login from './pages/Login.jsx';
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="/github" element={<GitHubPage />} />
             <Route path="/conversas" element={<Conversas />} />
             <Route path="/novidades" element={<Novidades />} />
+            <Route path="/emails" element={<Emails />} />
             <Route path="/logs" element={<Logs />} />
             <Route path="/settings" element={<Settings />} />
           </Route>

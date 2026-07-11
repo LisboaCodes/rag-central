@@ -2,7 +2,7 @@ import { Router } from 'express';
 import {
   authEnabled, startLogin, verifyEmailCode, verify2faCode, requireAuth
 } from '../services/auth.js';
-import { resendConfigured } from '../services/resend.js';
+import { emailConfigured } from '../services/email.js';
 import { getSettings } from '../services/settings.js';
 
 const router = Router();
@@ -12,7 +12,7 @@ router.get('/config', (req, res) => {
   const s = getSettings();
   res.json({
     enabled: authEnabled(),
-    resendReady: resendConfigured(),
+    emailReady: emailConfigured(),
     whatsappReady: Boolean(s.WHATSAPP_ENABLED && s.AUTH_2FA_NUMBER),
     allowedConfigured: Boolean(String(s.AUTH_ALLOWED_EMAILS || '').trim())
   });

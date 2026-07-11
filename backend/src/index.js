@@ -24,6 +24,7 @@ import authRouter from './routes/auth.js';
 import vaultRouter from './routes/vault.js';
 import projectsRouter from './routes/projects.js';
 import taskhubRouter from './routes/taskhub.js';
+import emailsRouter from './routes/emails.js';
 import { authGate } from './services/auth.js';
 import { logEvent } from './services/activity.js';
 
@@ -61,6 +62,7 @@ app.use('/cron', cronRouter);
 app.use('/status', statusRouter);
 app.use('/config', configRouter);
 app.use('/logs', logsRouter);
+app.use('/emails', emailsRouter);
 
 app.get('/', (req, res) => {
   res.json({
