@@ -33,7 +33,7 @@ export default function Search() {
   const [searched, setSearched] = useState('');
 
   useEffect(() => {
-    api.projects().then((r) => setProjects(r.projects)).catch(() => {});
+    api.sourceProjects().then((r) => setProjects(r.projects)).catch(() => {});
   }, []);
 
   async function handleSearch(e) {

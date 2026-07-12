@@ -111,7 +111,10 @@ export const api = {
   ingestPreview: (formData) => request('/ingest/preview', { method: 'POST', body: formData }),
 
   sources: () => request('/sources'),
-  projects: () => request('/sources/projects'),
+  // os projetos da BASE DE CONHECIMENTO (a coluna `project` dos documentos).
+  // Não confundir com `api.projects`, que é o runner de scripts — os dois já se
+  // chamaram `projects` e o objeto engolia a função, quebrando /ingest e /search.
+  sourceProjects: () => request('/sources/projects'),
   chunks: (project, sourcePath) =>
     request(`/sources/chunks?project=${encodeURIComponent(project)}&source_path=${encodeURIComponent(sourcePath)}`),
   deleteSource: (project, sourcePath) =>

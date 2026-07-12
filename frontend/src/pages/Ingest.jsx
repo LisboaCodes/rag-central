@@ -20,7 +20,7 @@ export default function Ingest() {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    api.projects().then((r) => setProjects(r.projects)).catch(() => {});
+    api.sourceProjects().then((r) => setProjects(r.projects)).catch(() => {});
   }, []);
 
   const overlapTokens = Math.round((chunkSize * overlapPct) / 100);
