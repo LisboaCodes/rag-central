@@ -106,6 +106,59 @@ export async function startLogin(email) {
   return { stage: 'email', sentTo: maskEmail(mail) };
 }
 
+// --- saída de emergência ---------------------------------------------------
+// O 1º fator do login é um e-mail. Se o serviço de e-mail cair, você fica
+// trancado para fora do painel — inclusive das Configurações, que é onde se
+// conserta. O break-glass troca APENAS o 1º fator por um segredo estático:
+// o 2º fator (WhatsApp) continua obrigatório, então um segredo vazado sozinho
+// não abre o painel.
+//
+// Vive só no ambiente (AUTH_BREAK_GLASS_CODE, no Coolify): não aparece no
+// /config e não é editável pela UI — quem tem o painel não precisa dele.
+function breakGlassCode() {
+  return String(process.env.AUTH_BREAK_GLASS_CODE || '');
+}
+
+export function breakGlassAvailable() {
+  return breakGlassCode().length >= 16;
+}
+
+// tentativas por e-mail, pra um segredo estático não virar alvo de força bruta
+const breakGlassAttempts = new Map();
+
+export async function startBreakGlass(email, code) {
+  const mail = String(email || '').trim().toLowerCase();
+  const secret = breakGlassCode();
+
+  if (secret.length < 16) throw httpErr(400, 'Saída de emergência não configurada (AUTH_BREAK_GLASS_CODE)');
+  if (!isAllowed(mail)) throw httpErr(403, 'E-mail não autorizado');
+
+  const tries = breakGlassAttempts.get(mail) || 0;
+  if (tries >= MAX_ATTEMPTS) {
+    logEvent('ERROR', 'auth', `saída de emergência BLOQUEADA por excesso de tentativas: ${mail}`);
+    throw httpErr(429, 'Muitas tentativas — bloqueado. Reinicie o backend para liberar.');
+  }
+  if (!constEq(code, secret)) {
+    breakGlassAttempts.set(mail, tries + 1);
+    logEvent('ERROR', 'auth', `tentativa de saída de emergência com código ERRADO: ${mail}`);
+    throw httpErr(401, 'Código de emergência incorreto');
+  }
+  breakGlassAttempts.delete(mail);
+
+  const num = getSettings().AUTH_2FA_NUMBER;
+  if (!num) throw httpErr(500, 'AUTH_2FA_NUMBER não configurado — sem 2º fator não há como entrar');
+
+  // pula o e-mail e vai direto pro 2º fator
+  const waCode = genCode();
+  challenges.set(mail, {
+    stage: 'whatsapp', emailCode: null, waCode,
+    expiresAt: Date.now() + CODE_TTL_MS, attempts: 0
+  });
+  await sendText(num, `CERBERUS · SAÍDA DE EMERGÊNCIA acionada. Código da 2ª etapa: ${waCode} (expira em 5 min). Se não foi você, alguém tem o código de emergência — troque-o.`);
+  logEvent('ERROR', 'auth', `SAÍDA DE EMERGÊNCIA acionada para ${mail} — 2º fator enviado por WhatsApp`);
+  return { stage: 'whatsapp', sentTo: maskNumber(num) };
+}
+
 // passo 2: confere o código do e-mail -> manda o 2º fator por WhatsApp
 export async function verifyEmailCode(email, code) {
   const mail = String(email || '').trim().toLowerCase();

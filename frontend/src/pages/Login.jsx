@@ -1,19 +1,36 @@
-import { useState } from 'react';
-import { BrainCircuit, Mail, MessageCircle, Loader2, ArrowLeft } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BrainCircuit, Mail, MessageCircle, Loader2, ArrowLeft, LifeBuoy } from 'lucide-react';
 import { api } from '../lib/api.js';
 import { useAuth } from '../lib/AuthContext.jsx';
 
-// Login em 3 passos: e-mail -> código do e-mail (Resend) -> código do WhatsApp.
+// Login em 3 passos: e-mail -> código do e-mail -> código do WhatsApp.
+// Se o serviço de e-mail estiver fora, a saída de emergência pula o 1º passo
+// (mas o WhatsApp continua obrigatório).
 export default function Login() {
   const { login } = useAuth();
-  const [stage, setStage] = useState('email');   // email | emailCode | waCode
+  const [stage, setStage] = useState('email');   // email | emailCode | breakGlass | waCode
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [sentTo, setSentTo] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [hasBreakGlass, setHasBreakGlass] = useState(false);
+
+  useEffect(() => {
+    api.auth.config().then((c) => setHasBreakGlass(Boolean(c.breakGlass))).catch(() => {});
+  }, []);
 
   function reset(toStage) { setCode(''); setError(''); setStage(toStage); }
+
+  async function submitBreakGlass(e) {
+    e.preventDefault();
+    setLoading(true); setError('');
+    try {
+      const r = await api.auth.breakGlass(email.trim(), code.trim());
+      setSentTo(r.sentTo || '');
+      reset('waCode');
+    } catch (err) { setError(err.message); } finally { setLoading(false); }
+  }
 
   async function submitEmail(e) {
     e.preventDefault();
@@ -78,6 +95,28 @@ export default function Login() {
           </form>
         )}
 
+        {stage === 'breakGlass' && (
+          <form onSubmit={submitBreakGlass} className="space-y-4">
+            <Step
+              icon={LifeBuoy}
+              title="Saída de emergência"
+              desc="Use só se o e-mail não estiver chegando. Informe o código de emergência — a confirmação por WhatsApp continua obrigatória."
+            />
+            <input
+              type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+              placeholder="seu@email.com"
+              className="w-full rounded-lg border border-edge bg-[#0d0f18] px-3 py-2.5 text-sm outline-none focus:border-amber-500"
+            />
+            <input
+              type="password" required autoFocus value={code} onChange={(e) => setCode(e.target.value)}
+              placeholder="código de emergência"
+              className="w-full rounded-lg border border-edge bg-[#0d0f18] px-3 py-2.5 text-sm outline-none focus:border-amber-500"
+            />
+            <SubmitBtn loading={loading}>Continuar pelo WhatsApp</SubmitBtn>
+            <BackBtn onClick={() => reset('email')}>Voltar ao login normal</BackBtn>
+          </form>
+        )}
+
         {stage === 'waCode' && (
           <form onSubmit={submitWaCode} className="space-y-4">
             <Step icon={MessageCircle} title="2ª etapa · WhatsApp" desc={`Código enviado para o WhatsApp ${sentTo}.`} />
@@ -88,6 +127,17 @@ export default function Login() {
         )}
 
         {error && <p className="mt-4 rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-400">{error}</p>}
+
+        {hasBreakGlass && (stage === 'email' || stage === 'emailCode') && (
+          <button
+            type="button"
+            onClick={() => { setEmail(email); reset('breakGlass'); }}
+            className="mt-5 flex w-full items-center justify-center gap-1.5 border-t border-edge pt-4 text-[11px] text-muted hover:text-amber-400"
+          >
+            <LifeBuoy size={12} />
+            O e-mail não chega? Usar a saída de emergência
+          </button>
+        )}
       </div>
     </div>
   );

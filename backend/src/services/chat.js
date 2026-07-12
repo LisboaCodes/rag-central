@@ -207,7 +207,7 @@ async function generateReply({ agentKey, persona, prov, conversationId, latestTe
   }
   const messages = [{ role: 'system', content: system }, ...llmMsgs];
 
-  const ctx = { project: project || null, agent: agentKey };
+  const ctx = { project: project || null, agent: agentKey, conversationId: conversationId || null };
   let answer, model, toolsUsed;
   if (prov.provider === 'openai') {
     ({ answer, model, toolsUsed } = onEvent

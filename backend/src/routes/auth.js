@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
-  authEnabled, startLogin, verifyEmailCode, verify2faCode, requireAuth
+  authEnabled, startLogin, verifyEmailCode, verify2faCode, requireAuth,
+  breakGlassAvailable, startBreakGlass
 } from '../services/auth.js';
 import { emailConfigured } from '../services/email.js';
 import { getSettings } from '../services/settings.js';
@@ -14,8 +15,19 @@ router.get('/config', (req, res) => {
     enabled: authEnabled(),
     emailReady: emailConfigured(),
     whatsappReady: Boolean(s.WHATSAPP_ENABLED && s.AUTH_2FA_NUMBER),
-    allowedConfigured: Boolean(String(s.AUTH_ALLOWED_EMAILS || '').trim())
+    allowedConfigured: Boolean(String(s.AUTH_ALLOWED_EMAILS || '').trim()),
+    breakGlass: breakGlassAvailable()
   });
+});
+
+// POST /auth/break-glass { email, code } — saída de emergência: pula o 1º fator
+// (e-mail) quando o serviço de e-mail está fora, e vai direto pro WhatsApp.
+// O 2º fator continua obrigatório.
+router.post('/break-glass', async (req, res, next) => {
+  try {
+    if (!authEnabled()) return res.status(400).json({ error: 'Login está desativado' });
+    res.json(await startBreakGlass(req.body?.email, req.body?.code));
+  } catch (err) { next(err); }
 });
 
 // POST /auth/login { email } — fator 1: dispara código por e-mail

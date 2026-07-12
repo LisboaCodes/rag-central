@@ -31,7 +31,8 @@ router.post('/test', async (req, res, next) => {
     const r = await sendEmail({
       to,
       subject: subject || 'Teste — RAG Central',
-      html: html || '<p>Teste de envio pelo painel do RAG Central.</p>'
+      html: html || '<p>Teste de envio pelo painel do RAG Central.</p>',
+      meta: { origem: 'painel', por: req.user?.email || null }
     });
     res.json(r);
   } catch (err) {

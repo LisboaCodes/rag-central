@@ -40,6 +40,7 @@ export const api = {
     login: (email) => request('/auth/login', { method: 'POST', body: JSON.stringify({ email }) }),
     verifyEmail: (email, code) => request('/auth/verify-email', { method: 'POST', body: JSON.stringify({ email, code }) }),
     verify2fa: (email, code) => request('/auth/verify-2fa', { method: 'POST', body: JSON.stringify({ email, code }) }),
+    breakGlass: (email, code) => request('/auth/break-glass', { method: 'POST', body: JSON.stringify({ email, code }) }),
     me: () => request('/auth/me')
   },
 

@@ -34,10 +34,14 @@ function describe(err) {
   return d?.error?.formErrors?.join('; ') || d?.error || d?.message || err.message;
 }
 
-export async function sendEmail({ to, subject, html, text, replyTo }) {
+// `meta` vai pro registro do email-api: é o que responde "quem pediu esse
+// e-mail?" quando você olha o painel depois (qual agente, qual conversa).
+// `idempotencyKey` evita que um retry nosso vire dois e-mails pro destinatário.
+export async function sendEmail({ to, subject, html, text, replyTo, meta, idempotencyKey }) {
   try {
-    const { data } = await client().post('/send', { to, subject, html, text, replyTo });
-    return { ok: true, id: data?.id || null, provider: data?.provider || null };
+    const headers = idempotencyKey ? { 'Idempotency-Key': String(idempotencyKey) } : undefined;
+    const { data } = await client().post('/send', { to, subject, html, text, replyTo, meta }, { headers });
+    return { ok: true, id: data?.id || null, provider: data?.provider || null, duplicate: Boolean(data?.duplicate) };
   } catch (err) {
     throw new Error(`email-api: ${describe(err)}`);
   }
@@ -63,5 +67,9 @@ export async function sendLoginCode(to, code) {
       <div style="font-size:34px;font-weight:700;letter-spacing:8px;background:#0d0f18;color:#fff;border-radius:12px;padding:18px;text-align:center">${code}</div>
       <p style="color:#6b7280;font-size:13px;margin-top:18px">Expira em 5 minutos. Se você não tentou entrar, ignore este e-mail.</p>
     </div>`;
-  return sendEmail({ to, subject, html, text: `Seu código CERBERUS é ${code} (expira em 5 minutos).` });
+  return sendEmail({
+    to, subject, html,
+    text: `Seu código CERBERUS é ${code} (expira em 5 minutos).`,
+    meta: { origem: 'login' }
+  });
 }

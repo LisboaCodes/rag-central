@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { getSettings } from './settings.js';
 import { embed, embedBatched } from './embedding.js';
 import { searchSimilar, insertChunks } from './db.js';
@@ -291,12 +292,23 @@ export async function executeTool(name, args = {}, ctx = {}) {
         if (!email.emailConfigured()) return { erro: 'email-api não configurado' };
         const para = String(args.para || '').split(',').map((e) => e.trim()).filter(Boolean);
         if (!para.length) return { erro: 'destinatário vazio' };
+        const assunto = String(args.assunto || '');
+        const mensagem = String(args.mensagem || '');
+        // se o modelo repetir a MESMA chamada (acontece), o destinatário não
+        // pode receber duas vezes: a chave é o conteúdo do pedido.
+        const idempotencyKey = createHash('sha256')
+          .update([ctx.agent, ctx.conversationId, para.join(','), assunto, mensagem].join('|'))
+          .digest('hex')
+          .slice(0, 32);
         const r = await email.sendEmail({
           to: para,
-          subject: String(args.assunto || ''),
-          html: String(args.mensagem || ''),
-          replyTo: args.responder_para || undefined
+          subject: assunto,
+          html: mensagem,
+          replyTo: args.responder_para || undefined,
+          meta: { agente: ctx.agent || null, conversa: ctx.conversationId || null, origem: 'ferramenta' },
+          idempotencyKey
         });
+        if (r.duplicate) return { ok: true, enviado_para: para, id: r.id, ja_enviado: true, aviso: 'este e-mail já tinha sido enviado — não foi duplicado' };
         return { ok: true, enviado_para: para, id: r.id, provedor: r.provider };
       }
       case 'salvar_no_cofre': {

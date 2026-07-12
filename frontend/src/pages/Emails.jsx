@@ -19,6 +19,16 @@ function stage(e) {
   return { label: 'Enviado', cls: 'bg-slate-500/15 text-slate-300', icon: Send };
 }
 
+// Quem realmente pediu o envio. O app ("rag") é grosso demais: o que interessa
+// é se foi a DARLENE numa conversa, o login, ou um teste do painel.
+function origem(e) {
+  const m = e.meta || {};
+  if (m.agente) return `${m.agente}${m.conversa ? ` · conversa #${m.conversa}` : ''}`;
+  if (m.origem === 'login') return 'código de login';
+  if (m.origem === 'painel') return `teste do painel${m.por ? ` · ${m.por}` : ''}`;
+  return null;
+}
+
 function Stat({ label, value, tone = 'text-body' }) {
   return (
     <div className="rounded-xl border border-edge bg-surface px-4 py-3">
@@ -104,7 +114,7 @@ export default function Emails() {
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Destinatário</th>
               <th className="px-4 py-3">Assunto</th>
-              <th className="px-4 py-3">App</th>
+              <th className="px-4 py-3">Origem</th>
               <th className="px-4 py-3">Aberto em</th>
             </tr>
           </thead>
@@ -123,7 +133,10 @@ export default function Emails() {
                   </td>
                   <td className="px-4 py-2.5 text-xs text-body/80">{(e.recipients || []).join(', ')}</td>
                   <td className="px-4 py-2.5 text-xs text-body/80">{e.subject}</td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-violet-400">{e.app}</td>
+                  <td className="px-4 py-2.5">
+                    <span className="font-mono text-xs text-violet-400">{e.app}</span>
+                    {origem(e) && <p className="mt-0.5 text-[10px] text-muted">{origem(e)}</p>}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-2.5 font-mono text-xs text-muted">
                     {fmt(e.opened_at)}
                     {e.opens > 1 && <span className="ml-1 text-[10px] text-emerald-400">({e.opens}×)</span>}
